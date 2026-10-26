@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Actual process/HTTP/PostgreSQL lifecycle smoke, called by test-m0."""
+import json
+import pathlib
 import http.cookiejar
 import os
 import re
@@ -113,6 +115,17 @@ try:
     quick = "/workspace/clusters/" + cluster_id
     for fields in [{"operation": "pin"}, {"operation": "note.save", "body": "Synthetic persisted runbook", "visibility": "private"}, {"operation": "link.save", "label": "Synthetic RTM", "url": "https://rtm.example.invalid/", "type": "rtm", "pinned": "on"}]:
         assert request(quick, dict(fields, csrf=csrf))[0] == 200
+    # The complete synthetic interchange must persist through database restart/restore.
+    example = pathlib.Path("internal/interchange/example.json").read_text()
+    payload = {"csrf": csrf, "document": example, "operation": "preview"}
+    assert request("/inventory/interchange", payload)[0] == 200
+    before_import = json.loads(request("/inventory/interchange?download=sanitized")[1])
+    payload["operation"] = "import"
+    assert request("/inventory/interchange", payload)[0] == 200
+    after_import = request("/inventory/interchange?download=sanitized")[1]
+    assert len(json.loads(after_import)["records"]) > len(before_import["records"])
+    assert request("/inventory/interchange", payload)[0] == 200
+    assert request("/inventory/interchange?download=sanitized")[1] == after_import
     subprocess.run(compose + ["stop", "db"], check=True, stdout=subprocess.DEVNULL)
     assert request("/healthz")[0] == 503
     assert request("/")[0] == 503
@@ -131,6 +144,7 @@ try:
     assert status == 200 and "Synthetic persisted runbook" in quick_html and "Synthetic RTM" in quick_html, "notes/links lost after restart"
     workspace_html = request("/workspace?q=runbook")[1]
     assert workspace_html.count("Synthetic lifecycle cluster") >= 3, "search/pin/recent lost after restart"
+    assert request("/inventory/interchange?download=sanitized")[1] == after_import, "interchange restart lost topology"
     # Prove the release backup format restores using only this disposable cluster.
     container = subprocess.check_output(compose + ["ps", "-q", "db"], text=True).strip()
     dbtools = ["docker", "exec", container]
@@ -140,7 +154,9 @@ try:
         backup.seek(0)
         subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "noc_workbench", "-d", "nw_restore_smoke", "--exit-on-error"], stdin=backup, check=True)
     restored = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT (SELECT count(*) FROM schema_migration),(SELECT count(*) FROM customer),(SELECT count(*) FROM environment),(SELECT note FROM operator_setting WHERE id=1),(SELECT count(*) FROM workspace_pin),(SELECT count(*) FROM operator_note),(SELECT count(*) FROM external_link),(SELECT count(*) FROM workspace_principal)"], text=True).strip()
-    assert restored == "5|1|1|synthetic persisted workspace|1|1|1|1", "database backup restore mismatch"
+    assert restored == "5|3|3|synthetic persisted workspace|1|1|1|1", "database backup restore mismatch"
+    restored_count = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT count(*) FROM service_instance_host"], text=True).strip()
+    assert int(restored_count) == 8, "imported host bindings lost in restore"
     subprocess.run(dbtools + ["dropdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)
     csrf = token(html)
     assert request("/logout", {"csrf": csrf})[0] == 200
@@ -153,7 +169,7 @@ try:
     for secret in [env["NOC_DB_PASSWORD"], env["NOC_DATABASE_URL"], env["NOC_PASSWORD_HASH"], "synthetic-smoke-password"]:
         assert secret not in output, "credential in process logs"
     assert '"msg":"application stopped"' in output
-    print("PASS: process startup, health/HTML/assets, login failure/success, auth/CSRF, DB outage, bounded failure, app+DB restart settings/session/customer/environment/topology/pins/recent/notes/links persistence, database backup/restore, logout, invalid config, graceful shutdown and sanitized logs")
+    print("PASS: process startup, health/HTML/assets, login failure/success, auth/CSRF, DB outage, bounded failure, app+DB restart settings/session/customer/environment/topology/pins/recent/notes/links persistence, interchange idempotency/restart and database backup/restore, logout, invalid config, graceful shutdown and sanitized logs")
 finally:
     stop()
     log.close()

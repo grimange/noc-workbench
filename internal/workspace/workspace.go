@@ -18,12 +18,14 @@ type Principal struct{ ID string }
 type Permission string
 
 const (
-	Search      Permission = "inventory.search"
-	Organize    Permission = "workspace.organize"
-	NotesRead   Permission = "notes.read"
-	NotesWrite  Permission = "notes.write"
-	LinksWrite  Permission = "links.write"
-	CommandCopy Permission = "connections.command.copy"
+	InventoryExport Permission = "inventory.export.sanitized"
+	InventoryImport Permission = "inventory.import"
+	Search          Permission = "inventory.search"
+	Organize        Permission = "workspace.organize"
+	NotesRead       Permission = "notes.read"
+	NotesWrite      Permission = "notes.write"
+	LinksWrite      Permission = "links.write"
+	CommandCopy     Permission = "connections.command.copy"
 )
 
 var ErrLimit = errors.New("This collection is limited to 100 records. Remove an existing record before adding another.")
@@ -46,7 +48,7 @@ func (LocalOperatorPolicy) Scope(p Principal, permission Permission) (Scope, err
 		return Scope{}, ErrDenied
 	}
 	switch permission {
-	case Search, Organize, NotesRead, NotesWrite, LinksWrite, CommandCopy:
+	case Search, Organize, NotesRead, NotesWrite, LinksWrite, CommandCopy, InventoryExport, InventoryImport:
 		return Scope{All: true}, nil
 	}
 	return Scope{}, ErrDenied

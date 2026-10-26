@@ -1,0 +1,467 @@
+{
+  "format": "noc-workbench.sanitized-inventory",
+  "version": 1,
+  "records": [
+    {
+      "type": "customer",
+      "id": "491c7bcd-8c0b-561d-b1e1-177fb76da60c",
+      "fields": {
+        "display_name": "Synthetic Customer A",
+        "short_code": "EXAMPLE_A",
+        "status": "active"
+      }
+    },
+    {
+      "type": "environment",
+      "id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+      "fields": {
+        "customer_id": "491c7bcd-8c0b-561d-b1e1-177fb76da60c",
+        "name": "Synthetic production",
+        "kind": "production",
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster",
+      "id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "name": "Synthetic communications",
+        "type": "generic",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "customer",
+      "id": "abb52485-68fe-561b-99d9-a7b4cb5b7edf",
+      "fields": {
+        "display_name": "Synthetic Customer B",
+        "short_code": "EXAMPLE_B",
+        "status": "active"
+      }
+    },
+    {
+      "type": "environment",
+      "id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+      "fields": {
+        "customer_id": "abb52485-68fe-561b-99d9-a7b4cb5b7edf",
+        "name": "Synthetic test",
+        "kind": "test",
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster",
+      "id": "bbf7f6d6-b9a7-541a-bcd1-fbef74510123",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "name": "Synthetic application",
+        "type": "generic",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "b261b508-8d80-5e8c-9b13-1fe230e4201c",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "name": "Synthetic dialer1",
+        "kind": "server",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "64b7fec2-1ba8-5b11-a245-07aa58a2a669",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "asset_id": "b261b508-8d80-5e8c-9b13-1fe230e4201c",
+        "protocol": "ssh",
+        "host": "192.0.2.10",
+        "port": 22,
+        "preferred": true,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "432dd342-ff6a-592b-aad5-3c731dd15383",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "asset_id": "b261b508-8d80-5e8c-9b13-1fe230e4201c",
+        "role": "dialer"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "237f7296-88e2-507b-8256-6727758bf2fb",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "name": "Synthetic dialer2",
+        "kind": "server",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "6cb7b182-e446-5f5f-9640-81a48f053786",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "asset_id": "237f7296-88e2-507b-8256-6727758bf2fb",
+        "protocol": "ssh",
+        "host": "192.0.2.11",
+        "port": 22,
+        "preferred": true,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "e57fe0f2-4305-5f94-9d0b-ec52a4c92d49",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "asset_id": "237f7296-88e2-507b-8256-6727758bf2fb",
+        "role": "dialer"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "00ba501a-e93e-5362-9258-5d9b45ff34da",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "name": "Synthetic web",
+        "kind": "server",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "e1be639a-3253-5571-ba8e-4e0b087a4be6",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "asset_id": "00ba501a-e93e-5362-9258-5d9b45ff34da",
+        "protocol": "ssh",
+        "host": "192.0.2.12",
+        "port": 22,
+        "preferred": true,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "ffc4e74d-1b0c-54ca-beeb-18eaf6f4bb6b",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "asset_id": "00ba501a-e93e-5362-9258-5d9b45ff34da",
+        "role": "web"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "2d61e757-b535-544f-a35d-cee416afb0b5",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "name": "Synthetic database",
+        "kind": "server",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "52c768f4-83bf-57d6-ad01-42590ed3a2ac",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "asset_id": "2d61e757-b535-544f-a35d-cee416afb0b5",
+        "protocol": "ssh",
+        "host": "192.0.2.13",
+        "port": 22,
+        "preferred": true,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "77f84070-c09f-5591-8255-658454dd6b6c",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "asset_id": "2d61e757-b535-544f-a35d-cee416afb0b5",
+        "role": "database"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "5f8c1231-3e89-51f8-8b34-4596c45e2bcd",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "name": "Synthetic app1",
+        "kind": "server",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "5bb11879-db74-5311-b8ec-0a9def1f6599",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "asset_id": "5f8c1231-3e89-51f8-8b34-4596c45e2bcd",
+        "protocol": "ssh",
+        "host": "192.0.2.14",
+        "port": 22,
+        "preferred": true,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "391301b1-9995-5f7d-b6c7-f9f4e38f24a2",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "cluster_id": "bbf7f6d6-b9a7-541a-bcd1-fbef74510123",
+        "asset_id": "5f8c1231-3e89-51f8-8b34-4596c45e2bcd",
+        "role": "app"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "932523bf-eb69-5328-b429-63bd2df4bebf",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "name": "Synthetic app2",
+        "kind": "server",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "8c8968aa-3bc3-5c4e-a00d-040db8d9fdb3",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "asset_id": "932523bf-eb69-5328-b429-63bd2df4bebf",
+        "protocol": "ssh",
+        "host": "192.0.2.15",
+        "port": 22,
+        "preferred": true,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "dc5a4565-0a16-5b7e-8c7e-557f0ceb888b",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "cluster_id": "bbf7f6d6-b9a7-541a-bcd1-fbef74510123",
+        "asset_id": "932523bf-eb69-5328-b429-63bd2df4bebf",
+        "role": "app"
+      }
+    },
+    {
+      "type": "asset",
+      "id": "5d061d27-c4bd-5bcd-80e1-667a089ab008",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "name": "Synthetic retired",
+        "kind": "server",
+        "lifecycle": "archived"
+      }
+    },
+    {
+      "type": "asset_endpoint",
+      "id": "088ac8dd-fbf5-5776-a6db-3eb6f2b7edb6",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "asset_id": "00ba501a-e93e-5362-9258-5d9b45ff34da",
+        "protocol": "https",
+        "host": "web.example.invalid",
+        "port": 443,
+        "preferred": false,
+        "status": "active"
+      }
+    },
+    {
+      "type": "cluster",
+      "id": "d1904ba4-58b4-51a8-9994-be21e3989bc4",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "name": "Synthetic database group",
+        "type": "database",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "cluster_membership",
+      "id": "90cd43c9-e8e6-5d54-b97a-8600b2ee3309",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "d1904ba4-58b4-51a8-9994-be21e3989bc4",
+        "asset_id": "2d61e757-b535-544f-a35d-cee416afb0b5",
+        "role": "database"
+      }
+    },
+    {
+      "type": "service",
+      "id": "99928d19-8ebf-59b5-9978-8ceec6ce47ec",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "name": "Synthetic asterisk",
+        "service_type": "asterisk",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance",
+      "id": "69030db9-d9b9-5952-bab8-7c128bdf2322",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_id": "99928d19-8ebf-59b5-9978-8ceec6ce47ec",
+        "name": "Synthetic asterisk instance",
+        "role": "worker",
+        "instance_key": "asterisk-1",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "f76df6df-c8e0-5930-8742-15ee054140c4",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_instance_id": "69030db9-d9b9-5952-bab8-7c128bdf2322",
+        "asset_id": "b261b508-8d80-5e8c-9b13-1fe230e4201c",
+        "binding_role": "worker"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "7fe33ece-b8c9-5ff0-86f0-dc1900dbbfe8",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_instance_id": "69030db9-d9b9-5952-bab8-7c128bdf2322",
+        "asset_id": "237f7296-88e2-507b-8256-6727758bf2fb",
+        "binding_role": "worker"
+      }
+    },
+    {
+      "type": "service",
+      "id": "9a9069ab-5488-5f49-9697-155e4bf5ff0b",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "name": "Synthetic webservice",
+        "service_type": "webservice",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance",
+      "id": "c6e0ea69-341f-573c-9bf1-f413eeda9a60",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_id": "9a9069ab-5488-5f49-9697-155e4bf5ff0b",
+        "name": "Synthetic webservice instance",
+        "role": "worker",
+        "instance_key": "webservice-1",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "1f539ee8-85bf-595d-9bd7-006a4b727a2a",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_instance_id": "c6e0ea69-341f-573c-9bf1-f413eeda9a60",
+        "asset_id": "00ba501a-e93e-5362-9258-5d9b45ff34da",
+        "binding_role": "worker"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "093d7612-f61f-5378-bb7b-a9e872602937",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_instance_id": "c6e0ea69-341f-573c-9bf1-f413eeda9a60",
+        "asset_id": "b261b508-8d80-5e8c-9b13-1fe230e4201c",
+        "binding_role": "worker"
+      }
+    },
+    {
+      "type": "service",
+      "id": "426ffb76-db3c-5c18-9368-4272dd48f4a1",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "cluster_id": "95119489-64b3-5b0d-a56e-c57dd221349c",
+        "name": "Synthetic mariadb",
+        "service_type": "mariadb",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance",
+      "id": "733f7aff-a2b4-5ce4-92cc-7194c2bd2903",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_id": "426ffb76-db3c-5c18-9368-4272dd48f4a1",
+        "name": "Synthetic mariadb instance",
+        "role": "worker",
+        "instance_key": "mariadb-1",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "d81693b5-52fe-5542-89aa-980ed37d285e",
+      "fields": {
+        "environment_id": "9a3fc495-f7fb-5c57-95d9-1bd845b68048",
+        "service_instance_id": "733f7aff-a2b4-5ce4-92cc-7194c2bd2903",
+        "asset_id": "2d61e757-b535-544f-a35d-cee416afb0b5",
+        "binding_role": "worker"
+      }
+    },
+    {
+      "type": "service",
+      "id": "55b47d27-ea1e-5212-bcd4-54b84b34f510",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "cluster_id": "bbf7f6d6-b9a7-541a-bcd1-fbef74510123",
+        "name": "Synthetic application",
+        "service_type": "application",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance",
+      "id": "2283b856-5943-5701-bf81-699d19d3e882",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "service_id": "55b47d27-ea1e-5212-bcd4-54b84b34f510",
+        "name": "Synthetic application instance",
+        "role": "worker",
+        "instance_key": "application-1",
+        "lifecycle": "active"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "cc571abb-504d-58d4-8113-d4b5c801baae",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "service_instance_id": "2283b856-5943-5701-bf81-699d19d3e882",
+        "asset_id": "5f8c1231-3e89-51f8-8b34-4596c45e2bcd",
+        "binding_role": "worker"
+      }
+    },
+    {
+      "type": "service_instance_host",
+      "id": "b8ba2431-0176-507b-9a11-4212944d9e8a",
+      "fields": {
+        "environment_id": "b66713bd-e425-520e-9a37-61d75e4474cf",
+        "service_instance_id": "2283b856-5943-5701-bf81-699d19d3e882",
+        "asset_id": "932523bf-eb69-5328-b429-63bd2df4bebf",
+        "binding_role": "worker"
+      }
+    }
+  ]
+}

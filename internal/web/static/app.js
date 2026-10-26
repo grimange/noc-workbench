@@ -40,3 +40,14 @@ document.addEventListener('click', async (event) => {
     status.textContent = 'Select and copy the command manually.';
   }
 });
+
+const inventoryFile = document.querySelector('[data-inventory-file]');
+if (inventoryFile) inventoryFile.addEventListener('change', async () => {
+ const status = document.querySelector('[data-inventory-status]');
+ const field = document.querySelector('[data-inventory-document]');
+ const file = inventoryFile.files[0]; field.value = '';
+ if (!file) return;
+ if (file.size > 262144) { status.textContent = 'JSON file exceeds 256 KiB.'; return; }
+ try { field.value = await file.text(); status.textContent = 'File loaded. Preview validates the complete graph.'; }
+ catch { status.textContent = 'File could not be read.'; }
+});

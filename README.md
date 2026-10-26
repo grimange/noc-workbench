@@ -81,3 +81,18 @@ Customers, environments and clusters can hold approved HTTP(S) external links, i
 An active SSH endpoint provides **Prepare SSH command** and clipboard/manual copying. The command uses only validated inventory host/port, disables inherited SSH configuration and forwarding, and requires strict host-key checking against independently verified local known-host entries. It never starts a connection or supplies credentials. Reviewed connection profiles, aliases and application-managed trust remain M2 work.
 
 Migration 005 adds a stable local-operator principal, scoped target references, pins, recent targets, notes, links, actor-attributed change records and search indexes. Sessions and authentication tables are unchanged. New workspace operations pass through a principal/permission/resource-scope service boundary; scope predicates apply before search pagination and result retrieval. The current policy authorizes the one operator. Multiple accounts, scoped role assignments and user administration are deferred; full RBAC is not implemented. Back up PostgreSQL before upgrading and retain the matching binary for rollback.
+
+
+## Sanitized inventory import/export
+
+Open **Import & export** to download deterministic, sanitized version-1 topology
+JSON or the reusable synthetic example. Preview a selected file or pasted JSON,
+review create/reuse counts, and confirm an atomic import. Conflicts reject the
+whole transaction; unchanged repeated imports are no-ops. No endpoints are contacted.
+This format excludes notes, tags, credentials, sessions and private workspace data;
+it is not a backup. See [the interchange contract](docs/INVENTORY_INTERCHANGE.md)
+for supported entities, pseudonymization, limits, collision and lifecycle policies.
+
+JSON is limited to 256 KiB and 500 records. Only the interchange POST route permits
+up to 1 MiB of URL-encoded form data; other application body limits remain unchanged.
+The reverse proxy must permit 1 MiB for that route. No new migration is required.

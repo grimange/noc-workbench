@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/security"
@@ -33,6 +34,7 @@ type Store interface {
 }
 type Options struct {
 	Enrollment            *connections.Service
+	Discovery             *collection.Service
 	BaseURL, PasswordHash string
 	SessionTTL            time.Duration
 	SecureCookie          bool
@@ -50,6 +52,7 @@ type Server struct {
 }
 type pageData struct {
 	Enrollment                                                 enrollmentData
+	Discovery                                                  discoveryData
 	Interchange                                                interchangeData
 	Workspace                                                  workspaceData
 	Topology                                                   topologyData
@@ -69,6 +72,8 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/linux", s.linuxDiscovery)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/linux", s.linuxDiscovery)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/ssh", s.sshEnrollment)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/ssh", s.sshEnrollment)
 	mux.HandleFunc("GET /inventory/interchange", s.inventoryInterchange)
@@ -137,7 +142,7 @@ func New(store Store, options Options) http.Handler {
 			}
 		}
 		budget := 3 * time.Second
-		if strings.HasSuffix(r.URL.Path, "/ssh") {
+		if strings.HasSuffix(r.URL.Path, "/ssh") || strings.HasSuffix(r.URL.Path, "/linux") {
 			budget = 12 * time.Second
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), budget)

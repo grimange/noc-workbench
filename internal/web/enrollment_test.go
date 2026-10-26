@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"noc-workbench/internal/collection"
+	linux "noc-workbench/internal/collectors/linux"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/store/postgres"
@@ -143,6 +145,7 @@ func TestIntegrationEnrollmentBrowser(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		o.Discovery = collection.NewService(o.Enrollment, linux.Registry())
 		c, e := db.CreateCustomer(ctx, inventory.Customer{DisplayName: "Synthetic browser lab", ShortCode: "BROWSER", Status: "active"})
 		if e != nil {
 			t.Fatal(e)

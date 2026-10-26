@@ -134,3 +134,51 @@ Private keys must likewise be protected regular files owned by the application a
 Profiles are bound to immutable customer/environment/asset/endpoint ownership and an optimistic revision. Endpoint edits suspend trust even when changed back. Review clears prior inspection, authorization and approval; independently inspect and approve again. A changed pinned IP requires a new profile. Concurrent stale submissions fail with a reload message. Archived owners block new contacts and successful verification commits. Disabling/rejecting remains available; history is retained in `connection_audit`. An already-started probe may finish after a concurrent change, but its result cannot mark a stale revision verified.
 
 Migration `006_ssh_enrollment.sql` preserves prior checksums and data. To exercise the disposable PostgreSQL/ordinary-user OpenSSH enrollment tests, run `NOC_SSH_LAB=1 ./scripts/test-m0`. Optional browser verification uses the local Playwright harness via `NOC_ENROLLMENT_BROWSER_SCRIPT`; no browser dependency is required to run the application. Existing single-operator permission grants are explicit; this is not multi-user RBAC.
+
+### On-demand Linux discovery (NW-009)
+
+Open an asset's **Linux facts** page and choose **Collect Linux Facts** for a
+`connection_verified` SSH profile. This explicit authenticated, CSRF-protected
+request runs five static versioned command specifications through the existing
+shared NW-007 executor and NW-008 live approval checks. Each command has a
+five-second deadline and 64 KiB combined output cap. The entire request has a
+ten-second collection budget; later collectors can report cancellation if the
+budget expires. At most five discovery requests and one per asset are active;
+duplicate requests are rejected without starting another collection.
+
+The page shows identity, uptime seconds, load averages and logical CPU count,
+memory bytes, and per-mount filesystem capacity bytes and reported percentage.
+Load averages are not CPU utilization. `MemAvailable` and `MemFree` remain
+separate; missing availability is explicitly unsupported. OS release data is
+parsed as data, never sourced. Filesystem output uses fixed C locale and
+1024-byte blocks, preserves mount paths containing spaces, and is capped at
+256 records. Ambiguous numeric field boundaries are rejected. Incomplete or invalid rows have diagnostics; virtual, network and
+temporary mounts are not classified as persistent storage or health evidence.
+
+Every valid observation carries asset, endpoint, exact profile revision,
+collector/version, command-spec ID, transport, typed value, unit, quality,
+sampling start and receive timestamps (application UTC clock). Collector
+failures preserve successful readings from other collectors and never produce
+zero substitutes or service-health conclusions. Raw stderr and parser input
+are excluded from diagnostics. Unknown collectors cannot start commands.
+
+Only the latest requested snapshot per asset is kept in process: up to 16
+snapshots for 30 minutes, scoped to the requesting principal and exact profile
+revision. A collector-detected changed or unknown host key clears approved
+trust, persists `identity_changed` with a new revision and a failed `verify`
+audit event, and requires explicit enrollment review. Failed-request diagnostics
+remain visible across that invalidation; superseded facts are withheld. A trust
+invalidation storage failure returns a sanitized internal error and quarantines
+the profile in process until successful review; that emergency quarantine alone
+cannot survive an application restart if its database write failed.
+GET and refresh perform no remote commands. Restart clears snapshots;
+inventory, enrollment and sessions use their existing durable storage. There
+are no new migrations, scheduler, automatic retries or durable run history in
+this slice; those remain NW-010 and later work.
+
+Parser and orchestration tests run with `go test ./...`. For authorized local
+acceptance, `NOC_SSH_LAB=1 ./scripts/test-m0` runs a disposable loopback OpenSSH
+server under the current ordinary account and isolated PostgreSQL schemas,
+including actual HTTP discovery and independent `/proc`, hostname, kernel and
+filesystem comparisons. Test-created keys, daemons, schemas and DB volumes are
+removed by their fixtures. No existing enrollment is contacted by these tests.

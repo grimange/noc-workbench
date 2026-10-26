@@ -9,6 +9,7 @@ import (
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -87,6 +88,8 @@ type Service struct {
 	Credentials Credentials
 	Policy      workspace.Policy
 	executor    *sshcli.Executor
+	// Failed identity checks remain blocked in process even if the database save fails.
+	quarantined sync.Map
 }
 
 func New(r Repository, i sshcli.Inventory, c Credentials, p workspace.Policy) (*Service, error) {
@@ -158,6 +161,9 @@ func (s *Service) List(ctx context.Context, p workspace.Principal, customer, env
 		return nil, err
 	}
 	for i := range list {
+		if _, blocked := s.quarantined.Load(list[i].ID); blocked && list[i].State != "disabled" && list[i].State != "rejected" {
+			list[i].State = "identity_changed"
+		}
 		if list[i].CustomerID != customer {
 			return nil, workspace.ErrDenied
 		}
@@ -210,6 +216,9 @@ func (s *Service) Approve(ctx context.Context, p workspace.Principal, t sshcli.T
 	r, err := s.Repository.Enrollment(ctx, t.EndpointID, t.ProfileID)
 	if err != nil {
 		return sshcli.Profile{}, workspace.ErrDenied
+	}
+	if _, blocked := s.quarantined.Load(t.ProfileID); blocked {
+		return sshcli.Profile{}, ErrState
 	}
 	if r.Target() != t || s.allowed(p, permission, r) != nil {
 		return sshcli.Profile{}, workspace.ErrDenied
@@ -282,7 +291,11 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		if _, e = s.live(ctx, r); e != nil {
 			return r, e
 		}
-		return s.Repository.SaveEnrollment(ctx, p, r, revision, action)
+		saved, err := s.Repository.SaveEnrollment(ctx, p, r, revision, action)
+		if err == nil {
+			s.quarantined.Delete(r.ID)
+		}
+		return saved, err
 	}
 	if _, err = s.live(ctx, r); err != nil {
 		return r, err

@@ -189,3 +189,10 @@ input[type="checkbox"] { width: 1.25rem; min-height: 1.25rem; align-self: flex-s
 #ssh-command { width:100%; overflow-wrap:anywhere; white-space:pre-wrap; }
 
 .ssh-enrollment code { overflow-wrap: anywhere; white-space: normal; }
+
+.linux-facts { margin: 1rem 0; }
+.linux-facts > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; border-bottom: 1px solid var(--border, #334155); padding: .65rem 0; }
+.linux-facts dt, .linux-facts dd, .linux-discovery code { overflow-wrap: anywhere; min-width: 0; }
+.linux-facts dd { margin: 0; }
+.collector-result { margin-top: 1.5rem; }
+@media (max-width: 600px) { .linux-facts > div { grid-template-columns: minmax(0, 1fr); gap: .35rem; } }

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"noc-workbench/internal/collection"
+	linux "noc-workbench/internal/collectors/linux"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/store/postgres"
 	"noc-workbench/internal/web"
@@ -42,7 +44,7 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		return errors.New("connection workflow initialization failed")
 	}
 	handler := web.New(db, web.Options{
-		Enrollment: enrollment, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
+		Enrollment: enrollment, Discovery: collection.NewService(enrollment, linux.Registry()), BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,
 	})
 	logger.Info("application started", "listen", cfg.Listen)

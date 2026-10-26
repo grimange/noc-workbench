@@ -24,6 +24,7 @@ type Lab struct {
 	Port                            int
 	Credential                      sshcli.Credential
 	Catalog                         string
+	restart                         func()
 }
 
 func Start(t *testing.T) Lab {
@@ -109,5 +110,49 @@ func Start(t *testing.T) Lab {
 	if err = os.WriteFile(catalog, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	return Lab{dir, material, fp, current.Username, port, credential, catalog}
+	restart := func() {
+		daemon.Process.Kill()
+		daemon.Wait()
+		daemon = exec.Command("/usr/sbin/sshd", "-D", "-e", "-f", filepath.Join(dir, "sshd.conf"))
+		daemon.Stderr = log
+		daemon.Stdout = log
+		if err := daemon.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return Lab{Dir: dir, HostKey: material, Fingerprint: fp, User: current.Username, Port: port, Credential: credential, Catalog: catalog, restart: restart}
+}
+
+// ReplaceHostKey restarts this disposable daemon's server-side identity. The
+// fixture is loopback-only; callers retain the old bytes to test restoration.
+func (l Lab) ReplaceHostKey(t *testing.T, key []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(l.Dir, "host"), key, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Compare the independently derived public key to a bounded loopback scan so
+	// tests do not race the disposable daemon startup.
+	pub, err := exec.Command("/usr/bin/ssh-keygen", "-y", "-f", filepath.Join(l.Dir, "host")).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(l.Dir, "host.pub"), pub, 0600); err != nil {
+		t.Fatal(err)
+	}
+	l.restart()
+	fields := strings.Fields(string(pub))
+	want := fields[0] + " " + fields[1]
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		out, _ := exec.Command("/usr/bin/ssh-keyscan", "-T", "1", "-t", "ed25519", "-p", strconv.Itoa(l.Port), "127.0.0.1").Output()
+		for _, line := range strings.Split(string(out), "\n") {
+			f := strings.Fields(line)
+			if len(f) >= 3 && f[0] != "#" && f[1]+" "+f[2] == want {
+				return
+			}
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	log, _ := os.ReadFile(filepath.Join(l.Dir, "sshd.log"))
+	t.Fatalf("lab identity reload not observed: %s", log)
 }

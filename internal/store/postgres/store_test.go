@@ -86,7 +86,7 @@ func TestIntegrationEmptyMigrationPersistenceAndSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err = s.pool.QueryRow(ctx, "SELECT count(*) FROM schema_migration").Scan(&count); err != nil || count != 2 {
+	if err = s.pool.QueryRow(ctx, "SELECT count(*) FROM schema_migration").Scan(&count); err != nil || count != 3 {
 		t.Fatalf("migrations=%d err=%v", count, err)
 	}
 	if err = s.Migrate(ctx); err != nil {
@@ -191,7 +191,7 @@ func TestIntegrationConcurrentMigrationsAndRollback(t *testing.T) {
 	defer s.Close()
 	// Deliberately conflict with an unapplied migration; verify its changes and
 	// tracking row roll back together, leaving the previous version intact.
-	if _, err = s.pool.Exec(ctx, "DELETE FROM schema_migration WHERE version='migrations/002_operator_settings.sql'"); err != nil {
+	if _, err = s.pool.Exec(ctx, "DELETE FROM schema_migration WHERE version >= 'migrations/002_operator_settings.sql'"); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Migrate(ctx); err == nil {

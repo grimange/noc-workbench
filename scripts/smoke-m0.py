@@ -86,6 +86,15 @@ try:
     assert request("/settings", {"label": "synthetic persisted workspace"}, csrf)[0] == 200
     assert "synthetic persisted workspace" in request("/")[1]
     assert request("/static/app.css")[0] == 200
+    # A real HTTP inventory write must survive both application and DB restarts.
+    status, html = request("/customers", {"csrf": csrf, "display_name": "Synthetic lifecycle customer",
+        "short_code": "SMOKE", "notes": "Synthetic fixture only", "status": "active"})
+    assert status == 200 and "Customer saved." in html
+    customer_path = re.search(r'href="(/customers/[a-f0-9-]+/edit)"', html)[1].removesuffix("/edit")
+    status, html = request(customer_path + "/environments", {"csrf": csrf,
+        "name": "Synthetic lab", "kind": "lab", "status": "active"})
+    assert status == 200 and "Environment saved." in html
+    environment_path = re.search(r'href="(/customers/[a-f0-9-]+/environments/[a-f0-9-]+/edit)"', html)[1].removesuffix("/edit")
     subprocess.run(compose + ["stop", "db"], check=True, stdout=subprocess.DEVNULL)
     assert request("/healthz")[0] == 503
     assert request("/")[0] == 503
@@ -96,6 +105,19 @@ try:
     start()
     status, html = request("/")
     assert status == 200 and "synthetic persisted workspace" in html, "state/session lost after restart"
+    assert "Synthetic lifecycle customer" in request(customer_path)[1], "customer lost after restart"
+    assert "Synthetic lab" in request(environment_path)[1], "environment lost after restart"
+    # Prove the release backup format restores using only this disposable cluster.
+    container = subprocess.check_output(compose + ["ps", "-q", "db"], text=True).strip()
+    dbtools = ["docker", "exec", container]
+    subprocess.run(dbtools + ["createdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)
+    with tempfile.TemporaryFile() as backup:
+        subprocess.run(dbtools + ["pg_dump", "-U", "noc_workbench", "-d", "noc_workbench", "-Fc"], stdout=backup, check=True)
+        backup.seek(0)
+        subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "noc_workbench", "-d", "nw_restore_smoke", "--exit-on-error"], stdin=backup, check=True)
+    restored = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT (SELECT count(*) FROM schema_migration),(SELECT count(*) FROM customer),(SELECT count(*) FROM environment),(SELECT note FROM operator_setting WHERE id=1)"], text=True).strip()
+    assert restored == "3|1|1|synthetic persisted workspace", "database backup restore mismatch"
+    subprocess.run(dbtools + ["dropdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)
     csrf = token(html)
     assert request("/logout", {"csrf": csrf})[0] == 200
     assert "Local operator sign in" in request("/")[1]
@@ -107,7 +129,7 @@ try:
     for secret in [env["NOC_DB_PASSWORD"], env["NOC_DATABASE_URL"], env["NOC_PASSWORD_HASH"], "synthetic-smoke-password"]:
         assert secret not in output, "credential in process logs"
     assert '"msg":"application stopped"' in output
-    print("PASS: process startup, health/HTML/assets, login failure/success, auth/CSRF, DB outage, bounded failure, app+DB restart persistence, logout, invalid config, graceful shutdown and sanitized logs")
+    print("PASS: process startup, health/HTML/assets, login failure/success, auth/CSRF, DB outage, bounded failure, app+DB restart settings/session/customer/environment persistence, database backup/restore, logout, invalid config, graceful shutdown and sanitized logs")
 finally:
     stop()
     log.close()

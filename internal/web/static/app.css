@@ -141,3 +141,32 @@ input[aria-invalid="true"] { border-color: var(--danger); }
   .workspace-footer { flex-direction: column; gap: var(--space-1); }
 }
 @media (prefers-reduced-motion: reduce) { .button:active { transform: none; } }
+/* Inventory reuses the shared shell, controls, and semantic feedback. */
+.form-panel { max-width: 720px; }
+.form-actions { gap: var(--space-3); flex-wrap: wrap; }
+.optional { font-weight: 400; color: var(--muted); }
+textarea { resize: vertical; }
+textarea[aria-invalid="true"], select[aria-invalid="true"] { border-color: var(--danger); }
+.inventory-notice, .inventory-section { margin-bottom: var(--space-5); }
+.notice-success { color: var(--teal); background: #14322d; border-color: #37615f; }
+.section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); }
+.section-toolbar p { margin-top: var(--space-2); font-size: .8125rem; }
+.metadata { display: flex; flex-wrap: wrap; gap: var(--space-5) var(--space-7); margin: var(--space-5) 0; }
+.metadata dt { font-size: .75rem; color: var(--muted); }
+.metadata dd { margin: var(--space-1) 0 0; font-size: .875rem; }
+.plain-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: var(--space-3); }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-size: .875rem; }
+th, td { padding: var(--space-4) var(--space-3); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+thead th { white-space: nowrap; overflow-wrap: normal; color: var(--muted); font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; }
+tbody th { font-weight: 600; }
+tbody tr:last-child > * { border-bottom: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.page-heading h1, .context-bar, .metadata dd { overflow-wrap: anywhere; }
+.context-bar { flex-wrap: wrap; }
+@media (max-width: 800px) { .app-nav { flex-wrap: wrap; } }
+@media (max-width: 480px) {
+  .page-heading, .section-toolbar { align-items: flex-start; flex-direction: column; }
+  th, td { padding: var(--space-3) var(--space-2); font-size: .75rem; }
+  .metadata { flex-direction: column; gap: var(--space-3); }
+}

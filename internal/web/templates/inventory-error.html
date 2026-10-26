@@ -1,0 +1,4 @@
+<!doctype html><html lang="en"><head>{{template "head"}}<title>Inventory unavailable · NOC Workbench</title></head><body>
+{{template "app-header" .}}<div class="app-layout">{{template "app-nav" .}}<main class="workspace" id="main-content" tabindex="-1"><h1>Unable to complete this request</h1><div class="notice notice-error inventory-notice" role="alert">{{.Error}}</div><a class="button button-quiet" href="/customers">Back to customers</a>{{if .Customer.ID}} <a class="button button-quiet" href="/customers/{{.Customer.ID}}">View customer</a>{{end}}</main></div></body></html>
+{{define "field-summary"}}{{if .Fields}}<div class="notice notice-error" role="alert"><strong>Please check the highlighted fields.</strong><p>Your changes have not been saved.</p></div>{{end}}{{end}}
+{{define "saved-notice"}}{{if .Notice}}<div class="notice notice-success inventory-notice" role="status">{{.Notice}}</div>{{end}}{{end}}

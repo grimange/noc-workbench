@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/security"
 	"noc-workbench/internal/store/postgres"
 )
@@ -35,16 +36,24 @@ type Options struct {
 	SecureCookie          bool
 }
 type Server struct {
-	store    Store
-	options  Options
-	host     string
-	mu       sync.Mutex
-	window   time.Time
-	attempts int
-	busy     chan struct{}
-	now      func() time.Time
+	store     Store
+	inventory inventory.Repository
+	options   Options
+	host      string
+	mu        sync.Mutex
+	window    time.Time
+	attempts  int
+	busy      chan struct{}
+	now       func() time.Time
 }
-type pageData struct{ CSRF, Label, Error string }
+type pageData struct {
+	CSRF, Label, Error, Title, Active, Heading, Action, Notice string
+	Customer                                                   inventory.Customer
+	Environment                                                inventory.Environment
+	Customers                                                  []inventory.Customer
+	Environments                                               []inventory.Environment
+	Fields                                                     inventory.FieldErrors
+}
 
 func New(store Store, options Options) http.Handler {
 	u, err := url.Parse(options.BaseURL)
@@ -52,6 +61,7 @@ func New(store Store, options Options) http.Handler {
 		panic("invalid web base URL")
 	}
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
+	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -59,6 +69,17 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("GET /{$}", s.home)
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("POST /settings", s.settings)
+	mux.HandleFunc("GET /customers", s.customers)
+	mux.HandleFunc("GET /customers/new", s.customerForm)
+	mux.HandleFunc("POST /customers", s.customerForm)
+	mux.HandleFunc("GET /customers/{customer}", s.customerDetail)
+	mux.HandleFunc("GET /customers/{customer}/edit", s.customerForm)
+	mux.HandleFunc("POST /customers/{customer}/edit", s.customerForm)
+	mux.HandleFunc("GET /customers/{customer}/environments/new", s.environmentForm)
+	mux.HandleFunc("POST /customers/{customer}/environments", s.environmentForm)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}", s.environmentDetail)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/edit", s.environmentForm)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/edit", s.environmentForm)
 	static, _ := fs.Sub(assets, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +102,13 @@ func New(store Store, options Options) http.Handler {
 				http.Error(w, "invalid origin", http.StatusForbidden)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, 8192)
+			limit := int64(8192)
+			// A valid 4096-byte note can require three times as many bytes in
+			// a native URL-encoded form. Keep authentication/settings limits small.
+			if r.Method == http.MethodPost && (r.URL.Path == "/customers" || strings.HasPrefix(r.URL.Path, "/customers/")) {
+				limit = 16384
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			if err := r.ParseForm(); err != nil {
 				http.Error(w, "invalid request", http.StatusBadRequest)
 				return

@@ -1,6 +1,6 @@
 # v1.1 data contract
 
-Source: `IMPLEMENTATION_PLAN.md` v1.1 Sections 5, 14–15. M0 implements only migration tracking, hashed-token operator sessions and singleton local workspace settings. These tables do not represent customers or monitored services.
+Source: `IMPLEMENTATION_PLAN.md` v1.1 Sections 5, 14–15. M0 implements migration tracking, hashed-token operator sessions and singleton local workspace settings. These tables do not represent customers or monitored services.
 
 M1 must keep customer → environment ownership explicit, with distinct assets (hosts), logical services, service instances and instance-to-host bindings. An asset can host several instances; a service may span multiple instances and hosts. Do not collapse a service or instance into a host label.
 
@@ -9,3 +9,8 @@ Use composite unique keys `(id, environment_id)` and composite foreign keys for 
 Collection outcome, observation quality, policy-evaluated service health and freshness remain four independent dimensions. Runs retain endpoint, exact approved profile/collector/spec versions and timestamps. Evaluated health references fresh evidence and policy version; unreachable collection does not establish service down. Expired evidence cannot establish current healthy/down. No M0 table preempts these contracts.
 
 Migrations live in `internal/store/postgres/migrations/` and are embedded in the binary. Names are sorted, history is contiguous and checksummed, and all pending migrations apply in one transaction under a transaction-scoped advisory lock. Unknown/modified migrations fail startup. Never edit an applied migration; add an ordered migration. Pool size and statement/connect/startup deadlines are bounded. Before applying future changes, test empty initialization, upgrade, rollback on failure and direct-SQL scope rejection. For release rollback, restore a pre-upgrade backup with the matching binary; M0 does not run destructive down migrations.
+
+
+NW-004 migration `003_customer_environment.sql` implements UUID-backed `customer` and `environment` tables. Customer fields are display name, normalized uppercase short code, optional notes, active/archived status and creation/update timestamps. Display names have case-insensitive global uniqueness; codes have global uniqueness. Environment fields are immutable customer ownership, name, lab/test/production classification, active/archived status and timestamps. Environment names are case-insensitively unique within their owner; `(id, customer_id)` is a candidate key for future scoped references. The customer foreign key restricts deletion. Lengths, normalized codes, statuses and classifications have SQL checks.
+
+Archival is non-destructive and reversible. Archived names/codes remain reserved. A trigger rejects changing an environment's ID or owner and rejects environment writes under an archived customer. It locks the parent row through the transaction, serializing writes against customer archival. No clusters, assets, service instances or remote enrollment are introduced. Existing M0 migrations remain immutable, and upgrade tests retain settings and sessions.

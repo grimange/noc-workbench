@@ -8,7 +8,7 @@ test:
 	go test ./...
 integration:
 	@test -n "$$NOC_TEST_DATABASE_URL" || (echo 'Set NOC_TEST_DATABASE_URL to an isolated loopback test DB'; exit 1)
-	go test -count=1 -v ./internal/store/postgres
+	go test -count=1 -v ./internal/store/postgres ./internal/web
 build:
 	go build -o /tmp/noc-workbench ./cmd/noc-workbench
 run:

@@ -1,1 +1,19 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · NOC Workbench</title><link rel="stylesheet" href="/static/app.css"></head><body><main><h1>NOC Workbench</h1><p>Local operator sign in</p><form method="post" action="/login"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Password <input name="password" type="password" required maxlength="72" autocomplete="current-password"></label><button>Sign in</button></form></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>{{template "head"}}<title>Sign in · NOC Workbench</title></head>
+<body class="auth-page">
+<main class="auth-layout">
+  <section class="auth-card" aria-labelledby="login-title">
+    <div class="brand auth-brand">{{template "brand"}}</div>
+    <div class="auth-heading"><p class="eyebrow">Infrastructure operations</p><h1 id="login-title">Welcome back.</h1><p>Sign in to your operations workspace.</p></div>
+    {{if .Error}}<div class="notice notice-error" role="alert" id="login-error"><strong>Unable to sign in</strong><p>{{.Error}}</p></div>{{end}}
+    <form method="post" action="/login" class="form-stack" data-pending>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required maxlength="72" autocomplete="current-password" placeholder="Enter your password" aria-describedby="password-help{{if .Error}} login-error{{end}}"{{if .Error}} aria-invalid="true"{{end}}><p class="field-help" id="password-help">Use your local operator password.</p></div>
+      <button class="button button-primary button-full" type="submit" data-pending-label="Signing in…">Sign in <span aria-hidden="true">→</span></button>
+    </form>
+    <div class="auth-footer"><span class="lock-mark" aria-hidden="true"></span><span>Local operator sign in</span></div>
+  </section>
+</main>
+</body>
+</html>

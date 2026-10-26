@@ -65,8 +65,10 @@ func New(store Store, options Options) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		// Preserve Origin on native same-origin form POSTs; no-referrer makes
+		// browsers send Origin: null. Cross-origin destinations get no referrer.
+		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		if options.SecureCookie {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -98,7 +100,11 @@ func (s *Server) cookie(w http.ResponseWriter, name, value string, expires time.
 	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", Expires: expires, MaxAge: maxAge, HttpOnly: true, Secure: s.options.SecureCookie, SameSite: http.SameSiteStrictMode})
 }
 func (s *Server) render(w http.ResponseWriter, name string, data pageData) {
+	s.renderStatus(w, http.StatusOK, name, data)
+}
+func (s *Server) renderStatus(w http.ResponseWriter, status int, name string, data pageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	_ = pages.ExecuteTemplate(w, name, data)
 }
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -133,19 +139,19 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if !allowed {
 		w.Header().Set("Retry-After", "60")
-		http.Error(w, "try again later", http.StatusTooManyRequests)
+		s.renderStatus(w, http.StatusTooManyRequests, "login.html", pageData{CSRF: c.Value, Error: "Too many attempts. Wait a minute before trying again."})
 		return
 	}
 	select {
 	case s.busy <- struct{}{}:
 		defer func() { <-s.busy }()
 	default:
-		http.Error(w, "try again later", http.StatusTooManyRequests)
+		s.renderStatus(w, http.StatusTooManyRequests, "login.html", pageData{CSRF: c.Value, Error: "Sign-in is busy. Please try again shortly."})
 		return
 	}
 	password := r.PostForm.Get("password")
 	if len(password) > 72 || bcrypt.CompareHashAndPassword([]byte(s.options.PasswordHash), []byte(password)) != nil {
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		s.renderStatus(w, http.StatusUnauthorized, "login.html", pageData{CSRF: c.Value, Error: "Incorrect password. Please try again."})
 		return
 	}
 	// Revoke the previous browser session on reauthentication.

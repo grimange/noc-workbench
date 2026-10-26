@@ -1,0 +1,26 @@
+{{define "head"}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+{{end}}
+{{define "brand"}}<span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>NOC<span class="brand-light"> Workbench</span></span>{{end}}
+{{define "app-header"}}
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="app-header">
+  <a class="brand" href="/" aria-label="NOC Workbench home">{{template "brand"}}</a>
+  <div class="header-actions"><span class="operator-label">Local operator</span><form method="post" action="/logout" data-pending>
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button class="button button-quiet" type="submit" data-pending-label="Signing out…">Sign out</button>
+  </form></div>
+</header>
+{{end}}
+{{define "app-nav"}}
+<nav class="app-nav" aria-label="Workspace navigation">
+  <p class="nav-label">Workspace</p>
+  <a class="nav-item" href="/" aria-current="page"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 7h12M7 7v7"/></svg> Overview</a>
+  <a class="nav-item" href="#workspace-settings"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M2 5h12M2 11h12"/><rect x="5" y="3" width="3" height="4" rx="1" fill="currentColor"/><rect x="9" y="9" width="3" height="4" rx="1" fill="currentColor"/></svg> Settings</a>
+  <div class="nav-footer"><span class="eyebrow">Built for investigation</span><p>Your infrastructure.<br>Your workspace.</p></div>
+</nav>
+{{end}}

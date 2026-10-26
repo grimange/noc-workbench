@@ -96,3 +96,23 @@ for supported entities, pseudonymization, limits, collision and lifecycle polici
 JSON is limited to 256 KiB and 500 records. Only the interchange POST route permits
 up to 1 MiB of URL-encoded form data; other application body limits remain unchanged.
 The reverse proxy must permit 1 MiB for that route. No new migration is required.
+
+## Read-only SSH transport (NW-007)
+
+`internal/transport/sshcli` provides a Go OpenSSH adapter, not a web shell or a collector. Its only command is the immutable `lab.probe.v1` (`printf 'NOC_WORKBENCH_SSH_LAB_OK\n'`). Inventory browsing, imports and endpoint creation never invoke it. The browser operator policy grants neither `connections.profile.use` nor `connections.execute`.
+
+Profiles use structured values rather than arbitrary SSH configuration: asset/endpoint/profile UUIDs and revision, customer/environment scope, approved host and resolved IP, port, user, protected identity-file reference and SHA-256, bare public host key and independently verified fingerprint. `FileApproval` re-reads a protected enrollment file and current PostgreSQL inventory before every attempt. Changed endpoint values, archived owners, disabled endpoints, stale revisions or altered profile digests fail closed. Credentials and approvals remain outside Git and database tables; no new migration is required. Approval files must be owned by the executing account or root and deny group/other access. Their digest detects changes; it is **not a signature** and the local file administrator is trusted. Approvals should be revoked before changing an enrolled endpoint; an in-flight command may finish after its initial approval.
+
+OpenSSH runs with `-F /dev/null`, pinned destination, temporary protected known-host and credential snapshots, strict host-key checking, public-key-only noninteractive authentication, no agent, TTY, forwarding, executable hooks or multiplexing. DNS must still resolve exclusively to the approved IP; connections use that pinned IP. Jump hosts are unsupported and cannot be supplied through a profile. `Inspect` returns bounded, untrusted key candidates; `Trust` requires independent fingerprint evidence and never automatically enrolls or replaces a key.
+
+Each shared executor defaults to five concurrent assets, one command per asset, a five-second total budget (including queueing), a five-second connection budget and 64 KiB combined output. Limits can be reduced; callers must reuse the executor to share its concurrency budget. Cancellation/output limits kill the child process group and reap the direct child. Results contain actor/target/command metadata, UTC timestamps, duration, exit status and a typed failure category. Raw stderr is discarded; stdout is transient caller data and must not be logged by default. Exit 255 without a recognized diagnostic is `internal_transport_error`. These are transport outcomes, never service-health assessments. Future collectors may register separate reviewed budgets up to the plan's 20-second initial allowance; no collectors or scheduler are included here.
+
+Run deterministic tests with `go test -race ./internal/transport/sshcli`. Explicitly authorize the disposable loopback-only real OpenSSH fixture with:
+
+```bash
+NOC_SSH_LAB=1 go test -race -count=1 -v ./internal/transport/sshcli
+```
+
+This requires `/usr/bin/ssh`, `/usr/bin/ssh-keygen`, `/usr/bin/ssh-keyscan` and `/usr/sbin/sshd`. It creates temporary keys and an ordinary-user SSH server on an ephemeral `127.0.0.1` port, then removes its resources. The temporary daemon disables `StrictModes` because test directories live beneath `/tmp`; the client retains strict host-key verification. It does not change system SSH configuration or personal SSH files.
+
+For explicitly provisioned local lab verification, the application binary supports `--ssh-lab-profile /protected/enrollment.json` only with `NOC_SSH_LAB=1` and normal application environment configuration. This opt-in diagnostic uses the current PostgreSQL inventory, stable operator principal and separate loopback-only `LabPolicy`. It runs only the registered probe and logs sanitized attempt metadata. The HTTP service never enables this path; general enrollment/grants remain NW-008 work. See the exported `Enrollment`/`Profile` types for the versioned profile revision fields and `ProfileDigest` for approval binding. Never use customer targets or production credentials for the lab.

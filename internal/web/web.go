@@ -1,4 +1,4 @@
-// Package web serves the local operator interface. It never executes remote work.
+// Package web serves the operator interface and delegates approved operations to domain services.
 package web
 
 import (
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"noc-workbench/internal/connections"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/security"
 	"noc-workbench/internal/store/postgres"
@@ -31,6 +32,7 @@ type Store interface {
 	SetNote(context.Context, string) error
 }
 type Options struct {
+	Enrollment            *connections.Service
 	BaseURL, PasswordHash string
 	SessionTTL            time.Duration
 	SecureCookie          bool
@@ -47,6 +49,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Enrollment                                                 enrollmentData
 	Interchange                                                interchangeData
 	Workspace                                                  workspaceData
 	Topology                                                   topologyData
@@ -66,6 +69,8 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/ssh", s.sshEnrollment)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/ssh", s.sshEnrollment)
 	mux.HandleFunc("GET /inventory/interchange", s.inventoryInterchange)
 	mux.HandleFunc("POST /inventory/interchange", s.inventoryInterchange)
 	mux.HandleFunc("GET /workspace", s.operatorWorkspace)
@@ -131,7 +136,11 @@ func New(store Store, options Options) http.Handler {
 				return
 			}
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		budget := 3 * time.Second
+		if strings.HasSuffix(r.URL.Path, "/ssh") {
+			budget = 12 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), budget)
 		defer cancel()
 		mux.ServeHTTP(w, r.WithContext(ctx))
 	})

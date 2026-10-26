@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"noc-workbench/internal/connections"
 	"noc-workbench/internal/store/postgres"
 	"noc-workbench/internal/web"
 )
@@ -36,8 +37,12 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		return errors.New("local HTTP listener unavailable")
 	}
 	defer listener.Close()
+	enrollment, err := connections.New(db, db, connections.Catalog(cfg.SSHCredentialCatalog), connections.OperatorPolicy{})
+	if err != nil {
+		return errors.New("connection workflow initialization failed")
+	}
 	handler := web.New(db, web.Options{
-		BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
+		Enrollment: enrollment, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,
 	})
 	logger.Info("application started", "listen", cfg.Listen)

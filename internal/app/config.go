@@ -14,23 +14,25 @@ import (
 )
 
 type Config struct {
-	Listen         string
-	BaseURL        string
-	DatabaseURL    string
-	PasswordHash   string
-	SessionTTL     time.Duration
-	StartupTimeout time.Duration
-	SecureCookie   bool
+	SSHCredentialCatalog string
+	Listen               string
+	BaseURL              string
+	DatabaseURL          string
+	PasswordHash         string
+	SessionTTL           time.Duration
+	StartupTimeout       time.Duration
+	SecureCookie         bool
 }
 
 // Load reads environment configuration without logging values. HTTP listeners and
 // database connections stay on loopback; an explicit HTTPS origin may name a proxy.
 func Load() (Config, error) {
 	c := Config{
-		Listen:       value("NOC_LISTEN", "127.0.0.1:8080"),
-		BaseURL:      value("NOC_BASE_URL", "http://127.0.0.1:8080"),
-		DatabaseURL:  os.Getenv("NOC_DATABASE_URL"),
-		PasswordHash: os.Getenv("NOC_PASSWORD_HASH"),
+		SSHCredentialCatalog: os.Getenv("NOC_SSH_CREDENTIAL_CATALOG"),
+		Listen:               value("NOC_LISTEN", "127.0.0.1:8080"),
+		BaseURL:              value("NOC_BASE_URL", "http://127.0.0.1:8080"),
+		DatabaseURL:          os.Getenv("NOC_DATABASE_URL"),
+		PasswordHash:         os.Getenv("NOC_PASSWORD_HASH"),
 	}
 	var err error
 	c.SessionTTL, err = time.ParseDuration(value("NOC_SESSION_TTL", "8h"))

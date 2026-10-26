@@ -81,23 +81,35 @@ func (f FileApproval) Approve(ctx context.Context, actor workspace.Principal, t 
 	if validProfile(p, t) != nil || !scope.Allows(p.CustomerID, p.EnvironmentID) {
 		return Profile{}, fail(PermissionDenied)
 	}
-	c, err := f.Inventory.Customer(ctx, p.CustomerID)
-	if err != nil || c.Status != "active" || c.ID != p.CustomerID {
-		return Profile{}, fail(PermissionDenied)
-	}
-	env, err := f.Inventory.Environment(ctx, p.CustomerID, p.EnvironmentID)
-	if err != nil || env.Status != "active" || env.ID != p.EnvironmentID || env.CustomerID != c.ID {
-		return Profile{}, fail(PermissionDenied)
-	}
-	a, err := f.Inventory.GetAsset(ctx, p.EnvironmentID, t.AssetID)
-	if err != nil || a.Lifecycle != "active" || a.ID != t.AssetID || a.EnvironmentID != env.ID {
-		return Profile{}, fail(PermissionDenied)
-	}
-	ep, err := f.Inventory.GetEndpoint(ctx, p.EnvironmentID, t.EndpointID)
-	if err != nil || ep.ID != t.EndpointID || ep.AssetID != a.ID || ep.EnvironmentID != env.ID || ep.Protocol != "ssh" || ep.Status != "active" || !ep.UpdatedAt.Equal(p.EndpointUpdatedAt) || ep.Host != p.Host || ep.Port != int(p.Port) {
-		return Profile{}, fail(PermissionDenied)
+	if err := ValidateInventoryProfile(ctx, f.Inventory, p, t); err != nil {
+		return Profile{}, err
 	}
 	return p, nil
+}
+
+// ValidateInventoryProfile reuses the exact live inventory/revision boundary for
+// external approvals and persisted operator enrollment alike. It does no network IO.
+func ValidateInventoryProfile(ctx context.Context, inv Inventory, p Profile, t Target) error {
+	if inv == nil || validProfile(p, t) != nil {
+		return fail(PermissionDenied)
+	}
+	c, err := inv.Customer(ctx, p.CustomerID)
+	if err != nil || c.Status != "active" || c.ID != p.CustomerID {
+		return fail(PermissionDenied)
+	}
+	env, err := inv.Environment(ctx, p.CustomerID, p.EnvironmentID)
+	if err != nil || env.Status != "active" || env.ID != p.EnvironmentID || env.CustomerID != c.ID {
+		return fail(PermissionDenied)
+	}
+	a, err := inv.GetAsset(ctx, p.EnvironmentID, t.AssetID)
+	if err != nil || a.Lifecycle != "active" || a.ID != t.AssetID || a.EnvironmentID != env.ID {
+		return fail(PermissionDenied)
+	}
+	ep, err := inv.GetEndpoint(ctx, p.EnvironmentID, t.EndpointID)
+	if err != nil || ep.ID != t.EndpointID || ep.AssetID != a.ID || ep.EnvironmentID != env.ID || ep.Protocol != "ssh" || ep.Status != "active" || !ep.UpdatedAt.Equal(p.EndpointUpdatedAt) || ep.Host != p.Host || ep.Port != int(p.Port) {
+		return fail(PermissionDenied)
+	}
+	return nil
 }
 
 // LabPolicy is opt-in and loopback-only. It is not the web operator policy.

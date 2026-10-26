@@ -19,7 +19,8 @@ import (
 )
 
 // Own a disposable schema, even when integration tests share a database.
-func inventoryFixture(t *testing.T) http.Handler {
+func inventoryFixture(t *testing.T) http.Handler { return inventoryFixtureWith(t, nil) }
+func inventoryFixtureWith(t *testing.T, configure func(*postgres.Store, *Options)) http.Handler {
 	t.Helper()
 	dsn := os.Getenv("NOC_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -76,7 +77,11 @@ func inventoryFixture(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(db, Options{BaseURL: "http://127.0.0.1:8080", PasswordHash: string(hash), SessionTTL: time.Hour})
+	options := Options{BaseURL: "http://127.0.0.1:8080", PasswordHash: string(hash), SessionTTL: time.Hour}
+	if configure != nil {
+		configure(db, &options)
+	}
+	return New(db, options)
 }
 
 func TestIntegrationInventoryHTTP(t *testing.T) {

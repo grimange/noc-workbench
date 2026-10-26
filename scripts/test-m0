@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Creates only isolated loopback resources; removes its own test volume on exit.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export PATH="${PATH}"
+work=$(mktemp -d /tmp/noc-m0-test.XXXXXX)
+project="noc-m0-test-$(basename "$work" | tr '[:upper:].' '[:lower:]-')"
+compose=(docker compose -p "$project" -f deployments/compose.yaml)
+cleanup() { "${compose[@]}" down -v >/dev/null; rm -rf "$work"; }
+trap cleanup EXIT
+export NOC_DB_PASSWORD NOC_DB_PORT NOC_DATABASE_URL NOC_TEST_DATABASE_URL NOC_PASSWORD_HASH NOC_SMOKE_BINARY
+NOC_DB_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(24))')
+NOC_DB_PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+NOC_DATABASE_URL="postgres://noc_workbench:${NOC_DB_PASSWORD}@127.0.0.1:${NOC_DB_PORT}/noc_workbench?sslmode=disable"
+NOC_TEST_DATABASE_URL="$NOC_DATABASE_URL"
+"${compose[@]}" up -d --wait
+go build -o "$work/hash-password" ./cmd/hash-password
+go build -o "$work/noc-workbench" ./cmd/noc-workbench
+NOC_PASSWORD_HASH=$(printf '%s\n' 'synthetic-smoke-password' | "$work/hash-password")
+NOC_SMOKE_BINARY="$work/noc-workbench"
+make check
+make integration
+python3 scripts/smoke-m0.py "$project"

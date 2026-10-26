@@ -1,0 +1,14 @@
+name: Verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  m0:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.8'
+          cache: true
+      - run: ./scripts/test-m0

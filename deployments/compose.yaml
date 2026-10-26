@@ -1,0 +1,20 @@
+name: noc-workbench
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: noc_workbench
+      POSTGRES_DB: noc_workbench
+      POSTGRES_PASSWORD: ${NOC_DB_PASSWORD:?Set NOC_DB_PASSWORD to a generated local password}
+    ports:
+      - "127.0.0.1:${NOC_DB_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noc_workbench -d noc_workbench"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    restart: unless-stopped
+volumes:
+  postgres-data:

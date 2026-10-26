@@ -1,0 +1,9 @@
+# M0 security boundary
+
+NOC Workbench runs for one operator on a trusted workstation with literal loopback HTTP and PostgreSQL endpoints. No production targets, remote collectors or vendor integrations exist in M0. Remote/LAN operation requires a separate deployment threat model.
+
+The operator supplies a bcrypt password hash through environment configuration. Passwords are never stored. Random 256-bit session identifiers are stored only as SHA-256 digests in PostgreSQL; separate random CSRF secrets are bound to sessions. Cookies are host-only, HttpOnly and SameSite Strict, with Secure enabled for HTTPS origins. All POSTs require the exact configured Origin and a valid CSRF token, including login/logout. Host validation rejects DNS-rebinding-style Host changes. Templates escape operator content, request bodies are capped and security headers restrict content, framing and referrers.
+
+Database credentials, session identifiers and CSRF secrets remain sensitive. Protect the workstation, process environment, database volume and backups. The application logs fixed, sanitized lifecycle errors and no request bodies/headers/URLs. It does not offer MFA, distributed rate limiting or an enterprise identity provider. Local login attempts are rate limited; a hostile local process with operator privileges is outside this boundary. Forgotten passwords are reset by supplying a newly generated hash and restarting; changing the configured password hash invalidates prior sessions because their lookup digests are bound to that hash.
+
+Keep migration backups and binaries paired. SQL migrations are application-owned local writes; monitored customer DBs are not accessed. Future inventory must enforce ownership in schema constraints, and future collections must retain the four independent state dimensions described in DATA_MODEL.md.

@@ -162,19 +162,50 @@ failures preserve successful readings from other collectors and never produce
 zero substitutes or service-health conclusions. Raw stderr and parser input
 are excluded from diagnostics. Unknown collectors cannot start commands.
 
-Only the latest requested snapshot per asset is kept in process: up to 16
-snapshots for 30 minutes, scoped to the requesting principal and exact profile
-revision. A collector-detected changed or unknown host key clears approved
-trust, persists `identity_changed` with a new revision and a failed `verify`
-audit event, and requires explicit enrollment review. Failed-request diagnostics
-remain visible across that invalidation; superseded facts are withheld. A trust
-invalidation storage failure returns a sanitized internal error and quarantines
-the profile in process until successful review; that emergency quarantine alone
-cannot survive an application restart if its database write failed.
-GET and refresh perform no remote commands. Restart clears snapshots;
-inventory, enrollment and sessions use their existing durable storage. There
-are no new migrations, scheduler, automatic retries or durable run history in
-this slice; those remain NW-010 and later work.
+### Durable evidence and recovery (NW-010)
+
+Authorized manual collection creates a PostgreSQL run before SSH executes. Migration
+007 adds collection runs, five distinct collector results and typed observations
+with exact endpoint/profile revision and static command provenance. All results
+and the terminal run state commit together; a write failure returns a sanitized
+error and leaves the run unfinished. Single-process startup marks unfinished runs
+`interrupted`, without repeating remote commands. Collection states are `running`,
+`completed`, `partial`, `failed`, `cancelled` and `interrupted`; transport outcomes,
+observation validity, freshness and operational health remain separate.
+
+The Linux facts page shows the latest attempted collection, 20 requests per history
+page and the last valid reading for each key/mount. Failed attempts preserve older
+valid facts with their original timestamps. Evidence is fresh only until its stored
+TTL expires; the page labels age and freshness without evaluating health. Historical
+profile revisions do not grant execution authority. No SSH runs on GET or refresh.
+
+Default policies are `NOC_OBSERVATION_TTL_SECONDS=180`,
+`NOC_COLLECTION_RUN_DAYS=30` and `NOC_COLLECTION_SAMPLE_DAYS=7`.
+TTL supports 1–86400 seconds; retention supports 1–365 days and sample retention
+cannot exceed run retention. Each explicit request performs a bounded maintenance
+transaction (at most 2000 expired nonlatest observations and 200 empty expired run
+summaries). Latest valid key/mount series and their parent provenance are retained
+indefinitely, even beyond the windows. This preserves last-known evidence; changing
+mount names can increase the number of retained series. The display caps at 2048
+series and explicitly reports incomplete output. Maintenance is demand-driven;
+there is no scheduler, background collection or automatic retry.
+
+Before each approved SSH operation, a durable uncertainty marker is committed in
+the existing profile's scope. A changed or unknown host key clears approval and
+requires explicit enrollment review. If persisting invalidation fails, the marker
+blocks further contacts. At single-process startup, any surviving marker clears
+approval and advances the profile revision atomically with an audit event. Disabled
+and rejected profiles remain disabled/rejected. If recovery cannot commit, startup
+fails closed. Even a previously approved key reappearing cannot bypass review,
+independent fingerprint approval and connection verification. The marker is never
+an alternative approval or credential store. A crash during an otherwise safe SSH
+operation can conservatively require reapproval. Multiple application processes
+sharing execution are not supported by this in-process M2 architecture.
+
+Back up PostgreSQL before migration. Existing migration checksums remain unchanged;
+an older binary rejects the new schema, so rollback requires the matching binary
+and pre-upgrade database backup. Raw SSH stdout/stderr and database errors are not
+stored as diagnostics; only bounded stable codes are retained.
 
 Parser and orchestration tests run with `go test ./...`. For authorized local
 acceptance, `NOC_SSH_LAB=1 ./scripts/test-m0` runs a disposable loopback OpenSSH

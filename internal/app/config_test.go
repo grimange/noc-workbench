@@ -14,7 +14,7 @@ func configEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"NOC_LISTEN", "NOC_BASE_URL", "NOC_SESSION_TTL", "NOC_STARTUP_TIMEOUT"} {
+	for _, key := range []string{"NOC_LISTEN", "NOC_BASE_URL", "NOC_SESSION_TTL", "NOC_STARTUP_TIMEOUT", "NOC_OBSERVATION_TTL_SECONDS", "NOC_COLLECTION_RUN_DAYS", "NOC_COLLECTION_SAMPLE_DAYS"} {
 		t.Setenv(key, "")
 	}
 	t.Setenv("NOC_DATABASE_URL", "postgres://synthetic:synthetic@127.0.0.1:55432/noc?sslmode=disable")
@@ -46,6 +46,12 @@ func TestHTTPSAndIPv6(t *testing.T) {
 func TestInvalidConfiguration(t *testing.T) {
 	configEnv(t)
 	for _, tc := range []struct{ key, value string }{
+		{"NOC_OBSERVATION_TTL_SECONDS", "0"},
+		{"NOC_OBSERVATION_TTL_SECONDS", "86401"},
+		{"NOC_COLLECTION_RUN_DAYS", "0"},
+		{"NOC_COLLECTION_RUN_DAYS", "366"},
+		{"NOC_COLLECTION_SAMPLE_DAYS", "31"},
+		{"NOC_COLLECTION_SAMPLE_DAYS", "invalid"},
 		{"NOC_LISTEN", "0.0.0.0:8080"},
 		{"NOC_LISTEN", "192.0.2.1:8080"},
 		{"NOC_LISTEN", "localhost:8080"},

@@ -1,5 +1,5 @@
-// Package collection defines transient, typed observations and on-demand parsing.
-// Scheduling, durable run history and health evaluation are separate concerns.
+// Package collection defines typed evidence, durable history contracts and bounded
+// on-demand execution. Scheduling and health evaluation are separate concerns.
 package collection
 
 import (
@@ -35,15 +35,20 @@ type Observation struct {
 }
 type Diagnostic struct{ Code string }
 type Result struct {
+	ObservationCount                         int
 	CollectorID, Version, CommandID, Outcome string
+	TransportOutcome                         string
 	StartedAt, EndedAt                       time.Time
 	Observations                             []Observation
 	Diagnostics                              []Diagnostic
 }
 type Run struct {
-	Target             sshcli.Target
-	StartedAt, EndedAt time.Time
-	Results            []Result
+	ID, State, Category, PrincipalID string
+	SuccessCount, FailureCount       int
+	EndpointRevision                 time.Time
+	Target                           sshcli.Target
+	StartedAt, EndedAt               time.Time
+	Results                          []Result
 }
 type Parser func([]byte) ([]Observation, []Diagnostic)
 type Spec struct {
@@ -98,13 +103,14 @@ func (r *Registry) Collect(ctx context.Context, e Executor, p workspace.Principa
 	}
 	for _, s := range specs {
 		raw, err := e.Execute(ctx, p, t, s.CommandID)
-		result := Result{CollectorID: s.ID, Version: s.Version, CommandID: s.CommandID, StartedAt: raw.StartedAt, EndedAt: raw.EndedAt, Outcome: "success"}
+		result := Result{CollectorID: s.ID, Version: s.Version, CommandID: s.CommandID, StartedAt: raw.StartedAt, EndedAt: raw.EndedAt, Outcome: "success", TransportOutcome: "success"}
 		if err != nil {
 			code := string(sshcli.Internal)
 			var f *sshcli.Failure
 			if errors.As(err, &f) {
 				code = string(f.Category)
 			}
+			result.TransportOutcome = code
 			result.Outcome = "failed"
 			result.Diagnostics = append(result.Diagnostics, Diagnostic{code})
 			// df can exit 1 for an inaccessible mount while reporting other mounts.
@@ -115,8 +121,9 @@ func (r *Registry) Collect(ctx context.Context, e Executor, p workspace.Principa
 			}
 		}
 		obs, diag := s.Parse(raw.Stdout)
+		result.ObservationCount = len(obs)
 		result.Observations = obs
-		result.Diagnostics = append(result.Diagnostics, diag...)
+		result.Diagnostics = boundedDiagnostics(append(result.Diagnostics, diag...))
 		if len(result.Diagnostics) > 0 {
 			result.Outcome = "partial"
 			if len(obs) == 0 {
@@ -141,5 +148,25 @@ func (r *Registry) Collect(ctx context.Context, e Executor, p workspace.Principa
 		run.Results = append(run.Results, result)
 	}
 	run.EndedAt = time.Now().UTC()
+	run.Summarize()
 	return run, nil
+}
+
+// Repeated malformed rows must not defeat persistence of unrelated evidence.
+// Codes contain no remote output; retain distinct causes within a fixed budget.
+func boundedDiagnostics(in []Diagnostic) []Diagnostic {
+	out := make([]Diagnostic, 0, 16)
+	seen := map[string]bool{}
+	for _, d := range in {
+		if seen[d.Code] {
+			continue
+		}
+		seen[d.Code] = true
+		if len(out) == 15 {
+			out = append(out, Diagnostic{Code: "diagnostics_truncated"})
+			break
+		}
+		out = append(out, d)
+	}
+	return out
 }

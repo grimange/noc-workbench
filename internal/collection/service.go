@@ -12,22 +12,31 @@ import (
 
 var ErrBusy = errors.New("Linux discovery is already running or at capacity; retry shortly")
 
-// Service retains only 16 last-request snapshots for 30 minutes in process.
-// It is not durable collection history. Opening a page never starts collection.
+// Service executes explicit bounded requests and commits evidence to its repository.
+// A repository-free service supports isolated parser/transport tests only.
+// Opening a page never starts collection.
 type Service struct {
-	registry *Registry
-	executor Executor
-	mu       sync.Mutex
-	busy     map[string]bool
-	latest   map[string]cached
+	repository          HistoryRepository
+	TTLSeconds          int
+	RunDays, SampleDays int
+	Clock               func() time.Time
+	registry            *Registry
+	executor            Executor
+	mu                  sync.Mutex
+	busy                map[string]bool
+	latest              map[string]cached
 }
 type cached struct {
 	actor string
 	run   Run
 }
 
-func NewService(e Executor, r *Registry) *Service {
-	return &Service{executor: e, registry: r, busy: map[string]bool{}, latest: map[string]cached{}}
+func NewService(e Executor, r *Registry, repositories ...HistoryRepository) *Service {
+	s := &Service{executor: e, registry: r, TTLSeconds: 180, RunDays: 30, SampleDays: 7, busy: map[string]bool{}, latest: map[string]cached{}}
+	if len(repositories) > 0 {
+		s.repository = repositories[0]
+	}
+	return s
 }
 func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.Target) (Run, error) {
 	s.mu.Lock()
@@ -40,9 +49,36 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 	defer func() { s.mu.Lock(); delete(s.busy, t.AssetID); s.mu.Unlock() }()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	var durable Run
+	if s.repository != nil {
+		if m, ok := s.repository.(interface {
+			MaintainCollections(context.Context, time.Time, int, int) error
+		}); ok {
+			if m.MaintainCollections(ctx, time.Now().UTC(), s.RunDays, s.SampleDays) != nil {
+				return Run{}, ErrPersistence
+			}
+		}
+		var err error
+		durable, err = s.repository.BeginCollection(ctx, p, t)
+		if err != nil {
+			return Run{}, ErrPersistence
+		}
+	}
 	run, err := s.registry.Collect(ctx, s.executor, p, t, s.registry.IDs())
 	if err != nil {
 		return run, err
+	}
+	if s.repository != nil {
+		run.ID = durable.ID
+		run.PrincipalID = p.ID
+		run.StartedAt = durable.StartedAt
+		run.EndpointRevision = durable.EndpointRevision
+		saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer saveCancel()
+		if s.repository.FinishCollection(saveCtx, p, run, s.TTLSeconds) != nil {
+			return run, ErrPersistence
+		}
+		return run, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -13,7 +13,13 @@ type discoverySnapshot struct {
 	Run       collection.Run
 	Suspended bool
 }
-type discoveryData struct{ Snapshots []discoverySnapshot }
+type discoveryData struct {
+	Snapshots []discoverySnapshot
+	Durable   bool
+	History   collection.History
+	Withheld  bool
+	Older     bool
+}
 
 func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.inventoryPage(w, r)
@@ -72,11 +78,29 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			d.Error = "Linux collection is busy or unavailable. Retry shortly."
+			d.Error = "Linux collection is busy or its evidence could not be committed. Review history after database recovery; retry only with an explicit new request."
 			s.renderStatus(w, 409, "discovery.html", d)
 			return
 		}
 		http.Redirect(w, r, d.Action, http.StatusSeeOther)
+		return
+	}
+	history, durable, historyErr := s.options.Discovery.History(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: d.Customer.ID, EnvironmentID: d.Environment.ID, AssetID: d.Enrollment.Asset.ID}, r.URL.Query().Get("before"))
+	if historyErr != nil {
+		s.inventoryFailure(w, d, historyErr)
+		return
+	}
+	d.Discovery.Older = r.URL.Query().Get("before") != ""
+	d.Discovery.Durable = durable
+	d.Discovery.History = history
+	if durable {
+		for _, rec := range d.Enrollment.Records {
+			if rec.State == "identity_changed" {
+				d.Discovery.Withheld = true
+				d.Discovery.History.Latest = nil
+			}
+		}
+		s.render(w, "discovery.html", d)
 		return
 	}
 	for _, rec := range d.Enrollment.Records {

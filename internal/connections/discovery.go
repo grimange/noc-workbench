@@ -16,7 +16,15 @@ func (s *Service) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 		now := time.Now().UTC()
 		return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
 	}
-	result, err := s.executor.Execute(ctx, p, t, id)
+	if s.allowed(p, sshcli.ExecutePermission, r) != nil {
+		return sshcli.Result{}, workspace.ErrDenied
+	}
+	guarded, token, guardErr := s.beginSSH(ctx, p, t)
+	if guardErr != nil {
+		now := time.Now().UTC()
+		return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
+	}
+	result, err := s.executor.Execute(guarded, p, t, id)
 	if result.Category == sshcli.ChangedKey || result.Category == sshcli.UnknownKey {
 		// Checking the remote identity is trust verification. Reuse the existing
 		// verify audit operation, preserving the exact failed category and CAS revision.
@@ -35,6 +43,9 @@ func (s *Service) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 			result.Category = sshcli.Internal
 			return result, &sshcli.Failure{Category: sshcli.Internal}
 		}
+	}
+	if e := s.endSSH(ctx, r.ID, token); e != nil {
+		return result, &sshcli.Failure{Category: sshcli.Internal}
 	}
 	return result, err
 }

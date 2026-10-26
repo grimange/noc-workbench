@@ -14,14 +14,15 @@ import (
 )
 
 type Config struct {
-	SSHCredentialCatalog string
-	Listen               string
-	BaseURL              string
-	DatabaseURL          string
-	PasswordHash         string
-	SessionTTL           time.Duration
-	StartupTimeout       time.Duration
-	SecureCookie         bool
+	CollectionTTL, CollectionRunDays, CollectionSampleDays int
+	SSHCredentialCatalog                                   string
+	Listen                                                 string
+	BaseURL                                                string
+	DatabaseURL                                            string
+	PasswordHash                                           string
+	SessionTTL                                             time.Duration
+	StartupTimeout                                         time.Duration
+	SecureCookie                                           bool
 }
 
 // Load reads environment configuration without logging values. HTTP listeners and
@@ -35,6 +36,18 @@ func Load() (Config, error) {
 		PasswordHash:         os.Getenv("NOC_PASSWORD_HASH"),
 	}
 	var err error
+	c.CollectionTTL, err = strconv.Atoi(value("NOC_OBSERVATION_TTL_SECONDS", "180"))
+	if err != nil || c.CollectionTTL < 1 {
+		return Config{}, errors.New("invalid observation TTL")
+	}
+	c.CollectionRunDays, err = strconv.Atoi(value("NOC_COLLECTION_RUN_DAYS", "30"))
+	if err != nil || c.CollectionRunDays < 1 {
+		return Config{}, errors.New("invalid run retention")
+	}
+	c.CollectionSampleDays, err = strconv.Atoi(value("NOC_COLLECTION_SAMPLE_DAYS", "7"))
+	if err != nil || c.CollectionSampleDays < 1 {
+		return Config{}, errors.New("invalid observation retention")
+	}
 	c.SessionTTL, err = time.ParseDuration(value("NOC_SESSION_TTL", "8h"))
 	if err != nil || c.SessionTTL < time.Minute || c.SessionTTL > 24*time.Hour {
 		return Config{}, errors.New("NOC_SESSION_TTL must be between 1m and 24h")
@@ -52,6 +65,9 @@ func Load() (Config, error) {
 
 // Validate also protects callers constructing Config directly.
 func (c Config) Validate() error {
+	if c.CollectionTTL < 0 || c.CollectionTTL > 86400 || c.CollectionRunDays < 0 || c.CollectionRunDays > 365 || c.CollectionSampleDays < 0 || c.CollectionSampleDays > 365 || (c.CollectionRunDays > 0 && c.CollectionSampleDays > c.CollectionRunDays) {
+		return errors.New("collection retention or TTL outside supported bounds")
+	}
 	if !loopbackAddress(c.Listen) {
 		return errors.New("NOC_LISTEN must be a literal loopback IP and port")
 	}

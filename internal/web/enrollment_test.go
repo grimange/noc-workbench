@@ -145,7 +145,7 @@ func TestIntegrationEnrollmentBrowser(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		o.Discovery = collection.NewService(o.Enrollment, linux.Registry())
+		o.Discovery = collection.NewService(o.Enrollment, linux.Registry(), db)
 		c, e := db.CreateCustomer(ctx, inventory.Customer{DisplayName: "Synthetic browser lab", ShortCode: "BROWSER", Status: "active"})
 		if e != nil {
 			t.Fatal(e)

@@ -27,3 +27,29 @@ Notes reference an author and target with explicit private/shared visibility. Re
 
 
 NW-008 migration `006_ssh_enrollment.sql` adds `connection_profile` and `connection_audit`. Composite endpoint/environment/asset and environment/customer foreign keys enforce ownership. Profile owners cannot be reassigned; every update advances an optimistic revision. Endpoint updates invalidate existing trust. Public approval metadata records stable authorizing/approving principals with foreign keys; audit rows reference the same persistent principal. Catalog/private key contents are never stored in PostgreSQL. Enrollment repository transactions lock active customer, environment, asset and endpoint rows before committing transitions, serializing commits against archival and endpoint edits. An in-flight contact is not cancelled by an inventory edit, but its stale result cannot commit as verified. Connection outcomes remain separate from lifecycle and operational health.
+
+NW-010 migration `007_collection_history.sql` adds `collection_run`,
+`collector_result`, `observation` and `ssh_execution_guard`. Composite profile
+ownership and run provenance keys reject cross-environment/customer/asset evidence.
+Each authorized request has a stable UUID, initiating principal, manual source,
+endpoint/profile revision and UTC lifecycle timestamps. Five versioned collector
+results are unique per run; typed observations have UUIDs, exact collector/command
+provenance, numeric/text values, stable key/unit constraints and valid quality.
+Completion inserts all results and observations and updates the run atomically.
+Failed writes leave a recoverable unfinished run, never a successful empty result.
+Startup marks unfinished runs interrupted without SSH retries.
+
+Latest-valid evidence is queried from indexed historical observations, independently
+of the last attempt. No second latest-value store exists. Default TTL is 180 seconds;
+freshness is calculated on reads. Demand-driven bounded maintenance removes old
+nonlatest samples after seven days and empty run summaries after thirty days.
+Latest key/mount series and the parent run/results remain indefinitely for provenance.
+Retention and TTL are configurable. History uses 20-row scoped keyset pagination;
+latest evidence display is bounded with explicit truncation. Diagnostics contain
+bounded codes only, never general raw remote output.
+
+The SSH guard is a durable pre-contact uncertainty marker. Single-process startup
+reconciliation atomically clears surviving profiles' approval, advances revisions,
+audits recovery and deletes markers. Disabled/rejected states remain authoritative.
+Failure to reconcile prevents startup. It extends existing approval authority rather
+than establishing a second trust model.

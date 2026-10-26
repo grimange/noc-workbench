@@ -94,6 +94,13 @@ type Service struct {
 
 func New(r Repository, i sshcli.Inventory, c Credentials, p workspace.Policy) (*Service, error) {
 	s := &Service{Repository: r, Inventory: i, Credentials: c, Policy: p}
+	if g, ok := r.(DurableGuard); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := g.RecoverSSH(ctx); err != nil {
+			return nil, err
+		}
+	}
 	e, err := sshcli.New(s)
 	s.executor = e
 	return s, err
@@ -220,6 +227,9 @@ func (s *Service) Approve(ctx context.Context, p workspace.Principal, t sshcli.T
 	if _, blocked := s.quarantined.Load(t.ProfileID); blocked {
 		return sshcli.Profile{}, ErrState
 	}
+	if s.guardAllowed(ctx, t) != nil {
+		return sshcli.Profile{}, ErrState
+	}
 	if r.Target() != t || s.allowed(p, permission, r) != nil {
 		return sshcli.Profile{}, workspace.ErrDenied
 	}
@@ -293,6 +303,9 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		}
 		saved, err := s.Repository.SaveEnrollment(ctx, p, r, revision, action)
 		if err == nil {
+			if e := s.endSSH(ctx, r.ID, ""); e != nil {
+				return saved, e
+			}
 			s.quarantined.Delete(r.ID)
 		}
 		return saved, err
@@ -300,6 +313,7 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 	if _, err = s.live(ctx, r); err != nil {
 		return r, err
 	}
+	token := ""
 	switch action {
 	case "submit":
 		if r.State != "draft" {
@@ -314,6 +328,10 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		r.Details.AuthorizedBy = p.ID
 		r.Details.AuthorizedAt = &now
 	case "inspect":
+		ctx, token, err = s.beginSSH(ctx, p, r.Target())
+		if err != nil {
+			return r, err
+		}
 		candidates, e := s.executor.Inspect(ctx, p, r.Target())
 		if e != nil {
 			r.Details.AttemptedAt = &now
@@ -363,6 +381,10 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		if (r.State != "pending_host_key_verification" && r.State != "connection_verified") || r.Details.ApprovedKey == "" {
 			return r, ErrState
 		}
+		ctx, token, err = s.beginSSH(ctx, p, r.Target())
+		if err != nil {
+			return r, err
+		}
 		result, e := s.executor.Execute(ctx, p, r.Target(), "lab.probe.v1")
 		r.Details.AttemptedAt = &now
 		r.Details.LastCategory = string(result.Category)
@@ -390,7 +412,11 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 	if _, err = s.live(ctx, r); err != nil {
 		return r, err
 	}
-	return s.Repository.SaveEnrollment(ctx, p, r, revision, action)
+	saved, err := s.Repository.SaveEnrollment(ctx, p, r, revision, action)
+	if err == nil && token != "" {
+		err = s.endSSH(ctx, r.ID, token)
+	}
+	return saved, err
 }
 func clearTrust(r *Record) {
 	r.Details.ApprovedKey = ""

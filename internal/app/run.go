@@ -43,8 +43,21 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("connection workflow initialization failed")
 	}
+	if err := db.RecoverCollections(startup); err != nil {
+		return errors.New("collection recovery failed")
+	}
+	discovery := collection.NewService(enrollment, linux.Registry(), db)
+	if cfg.CollectionTTL > 0 {
+		discovery.TTLSeconds = cfg.CollectionTTL
+	}
+	if cfg.CollectionRunDays > 0 {
+		discovery.RunDays = cfg.CollectionRunDays
+	}
+	if cfg.CollectionSampleDays > 0 {
+		discovery.SampleDays = cfg.CollectionSampleDays
+	}
 	handler := web.New(db, web.Options{
-		Enrollment: enrollment, Discovery: collection.NewService(enrollment, linux.Registry()), BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
+		Enrollment: enrollment, Discovery: discovery, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,
 	})
 	logger.Info("application started", "listen", cfg.Listen)

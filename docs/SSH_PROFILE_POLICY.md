@@ -7,3 +7,15 @@ Automated collection must use a reviewed application-controlled minimal OpenSSH 
 Require independently evidenced host-key verification, protected known_hosts/profile files, BatchMode=yes, StrictHostKeyChecking=yes, no TTY, no agent forwarding or unsolicited forwarding. Store credential references, never private keys. Destination/DNS, route, key, identity or profile changes suspend collection until review. Enrollment authorization and exact approved revision are rechecked at execution; merely entering an endpoint must not connect.
 
 Collectors use static versioned allowlisted command specs without interpolated browser input. Bound process count, output, timeouts and cancellation of complete child process trees. No hidden sudo, arbitrary shell API, remote mutation, installed daemon, cron or persistent script. Tests use fake executables and isolated authorized lab endpoints, including malicious configuration, changed key/route, dynamic resolution and hung child cases. Production access always requires separate explicit target/scope authorization.
+
+NW-010 adds a durable pre-contact uncertainty marker to the existing profile.
+Each inspect, verify or collector command commits a marker before network contact;
+an internal context token identifies the active guarded operation. A failed trust
+invalidation or marker cleanup retains the marker and blocks further execution.
+Single-process startup atomically clears surviving approvals, advances revisions,
+records an audit event and removes markers. Recovery cannot enable disabled/rejected
+profiles. If PostgreSQL/reconciliation is unavailable, the application fails closed.
+A returning old key requires explicit review, independent fingerprint approval and
+verification. No network reconciliation or automatic retry occurs. This conservative
+recovery can require reapproval after any interrupted SSH operation. Multiple active
+application processes sharing SSH execution are outside the current M2 architecture.

@@ -23,7 +23,10 @@ import (
 	"noc-workbench/internal/workspace"
 )
 
-type failingTrustSave struct{ connections.Repository }
+type failingTrustSave struct {
+	connections.Repository
+	connections.DurableGuard
+}
 
 func (f failingTrustSave) SaveEnrollment(context.Context, workspace.Principal, connections.Record, int64, string) (connections.Record, error) {
 	return connections.Record{}, errors.New("synthetic private database error")
@@ -48,6 +51,7 @@ func TestIntegrationLinuxDiscoveryHTTP(t *testing.T) {
 	var db *postgres.Store
 	var svc *connections.Service
 	var discover *collection.Service
+	var opts Options
 	var c inventory.Customer
 	var env inventory.Environment
 	var asset inventory.Asset
@@ -74,6 +78,7 @@ func TestIntegrationLinuxDiscoveryHTTP(t *testing.T) {
 		must(e)
 		ep, e = db.SaveEndpoint(ctx, inventory.Endpoint{EnvironmentID: env.ID, AssetID: asset.ID, Host: "127.0.0.1", Port: lab.Port, Protocol: "ssh", Status: "active"})
 		must(e)
+		opts = *o
 	})
 	path := fmt.Sprintf("/customers/%s/environments/%s/assets/%s/linux", c.ID, env.ID, asset.ID)
 	cookie := authenticate(t, h)
@@ -230,6 +235,22 @@ func TestIntegrationLinuxDiscoveryHTTP(t *testing.T) {
 	if _, e := db.GetAsset(ctx, env.ID, asset.ID); e != nil {
 		t.Fatal("inventory lost")
 	}
+
+	durable := collection.NewService(svc, linux.Registry(), db)
+	durableRun, e := durable.Collect(ctx, actor, r.Target())
+	must(e)
+	scope := collection.HistoryScope{CustomerID: c.ID, EnvironmentID: env.ID, AssetID: asset.ID}
+	persisted, _, e := collection.NewService(svc, linux.Registry(), db).History(ctx, actor, scope, "")
+	must(e)
+	if len(persisted.Runs) != 1 || persisted.Runs[0].ID != durableRun.ID || persisted.Runs[0].State != "completed" || len(persisted.Latest) == 0 {
+		t.Fatal("durable real SSH history missing")
+	}
+	opts.Discovery = collection.NewService(svc, linux.Registry(), db)
+	durableHTTP := New(db, opts)
+	durablePage := request(durableHTTP, "GET", path, nil, cookie)
+	if durablePage.Code != 200 || !strings.Contains(durablePage.Body.String(), durableRun.ID) || !strings.Contains(durablePage.Body.String(), "Last successful observations") || !strings.Contains(durablePage.Body.String(), "fresh") {
+		t.Fatal("durable HTTP evidence", durablePage.Code, durablePage.Body.String())
+	}
 	// Revocation fails at execution even before a GET updates display state.
 	old := r.Target()
 	data, e := os.ReadFile(lab.Catalog)
@@ -238,6 +259,18 @@ func TestIntegrationLinuxDiscoveryHTTP(t *testing.T) {
 	_, e = svc.Execute(ctx, actor, old, "linux.uptime.v1")
 	if e == nil {
 		t.Fatal("revoked credential executed")
+	}
+	failedRun, e := durable.Collect(ctx, actor, old)
+	must(e)
+	persisted, _, e = durable.History(ctx, actor, scope, "")
+	must(e)
+	if persisted.Runs[0].ID != failedRun.ID || persisted.Runs[0].State != "failed" || len(persisted.Latest) == 0 {
+		t.Fatal("failed SSH attempt erased durable evidence")
+	}
+	for _, o := range persisted.Latest {
+		if o.RunID != durableRun.ID {
+			t.Fatal("failed attempt replaced facts")
+		}
 	}
 	must(os.WriteFile(lab.Catalog, data, 0600))
 	// A real changed server key persists trust suspension. Returning the original
@@ -248,21 +281,34 @@ func TestIntegrationLinuxDiscoveryHTTP(t *testing.T) {
 	must(e)
 	// A storage failure cannot leave the in-process UI or execution authority
 	// claiming trust. Error contents must not reach the rendered diagnostics.
-	svc.Repository = failingTrustSave{db}
+	svc.Repository = failingTrustSave{db, db}
 	lab.ReplaceHostKey(t, wrongKey)
-	response = request(h, "POST", path, form(), cookie)
+	response = request(durableHTTP, "POST", path, form(), cookie)
 	if response.Code != 303 {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	page = request(h, "GET", path, nil, cookie)
-	if !strings.Contains(page.Body.String(), "identity_changed") || !strings.Contains(page.Body.String(), "previous revision are withheld") || strings.Contains(page.Body.String(), "Collect Linux Facts</button>") || strings.Contains(page.Body.String(), "synthetic private database error") || strings.Contains(page.Body.String(), "linux.uptime.seconds</dt>") {
+	page = request(durableHTTP, "GET", path, nil, cookie)
+	if !strings.Contains(page.Body.String(), "identity_changed") || !strings.Contains(page.Body.String(), "Facts are withheld") || strings.Contains(page.Body.String(), "Collect Linux Facts</button>") || strings.Contains(page.Body.String(), "synthetic private database error") || strings.Contains(page.Body.String(), "linux.uptime.seconds</dt>") {
 		t.Fatal("save failure trust/diagnostic UI", page.Body.String())
 	}
 	lab.ReplaceHostKey(t, hostKey)
 	if _, e = svc.Execute(ctx, actor, r.Target(), "linux.uptime.v1"); e == nil {
 		t.Fatal("save failure quarantine bypassed")
 	}
+
 	svc.Repository = db
+	restarted, e := connections.New(db, db, connections.Catalog(lab.Catalog), connections.OperatorPolicy{})
+	must(e)
+	for range 2 {
+		if _, e = restarted.Execute(ctx, actor, r.Target(), "linux.uptime.v1"); e == nil {
+			t.Fatal("restart after failed invalidation executed")
+		}
+	}
+	r, e = db.Enrollment(ctx, r.EndpointID, r.ID)
+	must(e)
+	if r.State != "identity_changed" || r.Details.ApprovedKey != "" {
+		t.Fatal("restart recovery failed")
+	}
 	act("review", "", "")
 	act("authorize", "", "authorized")
 	act("inspect", "", "")

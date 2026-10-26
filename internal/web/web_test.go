@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -248,68 +249,102 @@ func TestPasswordRotationRevokesSessions(t *testing.T) {
 // Exercise real TLS and a distinct loopback proxy/backend pair. Forwarded
 // headers do not select the origin; the configured Host and Origin remain exact.
 func TestHTTPSProxyAuthentication(t *testing.T) {
-	_, m := fixture(t)
-	backend := httptest.NewUnstartedServer(nil)
-	target := &url.URL{Scheme: "http", Host: backend.Listener.Addr().String()}
-	proxy := httptest.NewUnstartedServer(httputil.NewSingleHostReverseProxy(target))
-	origin := "https://" + proxy.Listener.Addr().String()
-	backend.Config.Handler = New(m, Options{BaseURL: origin, PasswordHash: m.credential, SessionTTL: time.Hour, SecureCookie: true})
-	backend.Start()
-	defer backend.Close()
-	proxy.StartTLS()
-	defer proxy.Close()
-	client := proxy.Client() // Trust only httptest's synthetic TLS certificate.
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client.Jar = jar
-	client.Timeout = 3 * time.Second
-	response, err := client.Get(origin + "/login")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	login := response.Cookies()[0]
-	if response.StatusCode != 200 || !login.Secure || !login.HttpOnly || login.SameSite != http.SameSiteStrictMode {
-		t.Fatal("insecure HTTPS login response")
-	}
-	post := func(path string, form url.Values, requestOrigin string) (int, string) {
-		t.Helper()
-		req, err := http.NewRequest("POST", origin+path, strings.NewReader(form.Encode()))
-		if err != nil {
-			t.Fatal(err)
+	for _, explicitPort := range []bool{false, true} {
+		name := "default443"
+		if explicitPort {
+			name = "nondefaultPort"
 		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Origin", requestOrigin)
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return resp.StatusCode, string(body)
-	}
-	status, html := post("/login", url.Values{"csrf": {login.Value}, "password": {"synthetic-test-password"}}, origin)
-	if status != 200 || !strings.Contains(html, "Workspace settings") {
-		t.Fatalf("HTTPS login: %d", status)
-	}
-	_, tail, found := strings.Cut(html, `name="csrf" value="`)
-	csrf, _, _ := strings.Cut(tail, `"`)
-	if !found || len(csrf) != 64 {
-		t.Fatal("HTTPS session CSRF missing")
-	}
-	form := url.Values{"csrf": {csrf}, "label": {"synthetic TLS workspace"}}
-	if status, _ := post("/settings", form, "http://"+target.Host); status != 403 {
-		t.Fatalf("backend origin accepted through TLS proxy: %d", status)
-	}
-	if status, html := post("/settings", form, origin); status != 200 || !strings.Contains(html, "synthetic TLS workspace") {
-		t.Fatalf("HTTPS authorized mutation: %d", status)
-	}
-	if status, _ := post("/logout", url.Values{"csrf": {csrf}}, origin); status != 200 {
-		t.Fatalf("HTTPS logout: %d", status)
+		t.Run(name, func(t *testing.T) {
+			_, m := fixture(t)
+			backend := httptest.NewUnstartedServer(nil)
+			target := &url.URL{Scheme: "http", Host: backend.Listener.Addr().String()}
+			proxy := httptest.NewUnstartedServer(httputil.NewSingleHostReverseProxy(target))
+			_, port, err := net.SplitHostPort(proxy.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			// httptest's certificate includes example.com. Dial only the loopback
+			// socket while verifying TLS for the configured DNS hostname and port.
+			origin := "https://example.com"
+			if explicitPort {
+				origin += ":" + port
+			}
+			backend.Config.Handler = New(m, Options{BaseURL: origin, PasswordHash: m.credential, SessionTTL: time.Hour, SecureCookie: true})
+			backend.Start()
+			defer backend.Close()
+			proxy.StartTLS()
+			defer proxy.Close()
+			client := proxy.Client() // Trust only httptest's synthetic TLS certificate.
+			transport := client.Transport.(*http.Transport).Clone()
+			transport.Proxy = nil
+			transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, proxy.Listener.Addr().String())
+			}
+			client.Transport = transport
+			jar, err := cookiejar.New(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.Jar = jar
+			client.Timeout = 3 * time.Second
+			response, err := client.Get(origin + "/login")
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			login := response.Cookies()[0]
+			if response.StatusCode != 200 || !login.Secure || !login.HttpOnly || login.SameSite != http.SameSiteStrictMode {
+				t.Fatal("insecure HTTPS login response")
+			}
+			post := func(path string, form url.Values, requestOrigin string) (int, string) {
+				t.Helper()
+				req, err := http.NewRequest("POST", origin+path, strings.NewReader(form.Encode()))
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.Header.Set("Origin", requestOrigin)
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer resp.Body.Close()
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return resp.StatusCode, string(body)
+			}
+			status, html := post("/login", url.Values{"csrf": {login.Value}, "password": {"synthetic-test-password"}}, origin)
+			if status != 200 || !strings.Contains(html, "Workspace settings") {
+				t.Fatalf("HTTPS login: %d", status)
+			}
+			_, tail, found := strings.Cut(html, `name="csrf" value="`)
+			csrf, _, _ := strings.Cut(tail, `"`)
+			if !found || len(csrf) != 64 {
+				t.Fatal("HTTPS session CSRF missing")
+			}
+			form := url.Values{"csrf": {csrf}, "label": {"synthetic TLS workspace"}}
+			wrongOrigin := "https://example.com"
+			if !explicitPort {
+				wrongOrigin += ":" + port
+			}
+			if status, _ := post("/settings", form, wrongOrigin); status != 403 {
+				t.Fatalf("origin with wrong port accepted: %d", status)
+			}
+			if status, _ := post("/settings", url.Values{"csrf": {"invalid"}, "label": {"forged"}}, origin); status != 403 {
+				t.Fatalf("invalid CSRF accepted through TLS proxy: %d", status)
+			}
+			if status, _ := post("/settings", form, "http://"+target.Host); status != 403 {
+				t.Fatalf("backend origin accepted through TLS proxy: %d", status)
+			}
+			if status, html := post("/settings", form, origin); status != 200 || !strings.Contains(html, "synthetic TLS workspace") {
+				t.Fatalf("HTTPS authorized mutation: %d", status)
+			}
+			if status, _ := post("/logout", url.Values{"csrf": {csrf}}, origin); status != 200 {
+				t.Fatalf("HTTPS logout: %d", status)
+			}
+
+		})
 	}
 }

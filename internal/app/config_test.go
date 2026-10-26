@@ -59,10 +59,25 @@ func TestInvalidConfiguration(t *testing.T) {
 		{"NOC_BASE_URL", "http://127.0.0.1:8080#fragment"},
 		{"NOC_BASE_URL", "ftp://127.0.0.1:8080"},
 		{"NOC_BASE_URL", "https://127.0.0.1:8080"},
-		{"NOC_BASE_URL", "https://192.0.2.1:8443"},
 		{"NOC_BASE_URL", "https://localhost:8443"},
-		{"NOC_BASE_URL", "https://127.0.0.1"},
 		{"NOC_BASE_URL", "https://127.0.0.1:443"},
+		{"NOC_BASE_URL", "https://noc.example.invalid:443"},
+		{"NOC_BASE_URL", "https://noc.example.invalid:"},
+		{"NOC_BASE_URL", "https://noc.example.invalid:08443"},
+		{"NOC_BASE_URL", "https://noc.example.invalid:65536"},
+		{"NOC_BASE_URL", "https://noc.example.invalid:0"},
+		{"NOC_BASE_URL", "https://NOC.example.invalid"},
+		{"NOC_BASE_URL", "https://noc.example.invalid."},
+		{"NOC_BASE_URL", "https://-noc.example.invalid"},
+		{"NOC_BASE_URL", "https://noc..example.invalid"},
+		{"NOC_BASE_URL", "https://127.0.0.01"},
+		{"NOC_BASE_URL", "https://0x7f.1"},
+		{"NOC_BASE_URL", "https://noc.example.123"},
+		{"NOC_BASE_URL", "https://noc.0x7f"},
+		{"NOC_BASE_URL", "HTTPS://noc.example.invalid"},
+		{"NOC_BASE_URL", "https://noc.example.invalid#"},
+		{"NOC_BASE_URL", "https://noc.example.invalid/path"},
+		{"NOC_BASE_URL", "http://noc.example.invalid"},
 		{"NOC_DATABASE_URL", ""},
 		{"NOC_DATABASE_URL", "postgres://synthetic:secret@192.0.2.1:5432/noc?sslmode=disable"},
 		{"NOC_DATABASE_URL", "host=127.0.0.1 password=secret"},
@@ -90,6 +105,19 @@ func TestInvalidConfiguration(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), tc.value) && len(tc.value) > 20 {
 				t.Fatal("configuration error leaks a supplied value")
+			}
+		})
+	}
+}
+
+func TestHTTPSProxyOrigins(t *testing.T) {
+	configEnv(t)
+	for _, origin := range []string{"https://noc.example.invalid", "https://noc.example.invalid:8443", "https://noc.example.invalid:9443", "https://noc.example.invalid:10443", "https://192.0.2.1:8443", "https://127.0.0.1", "https://[::1]"} {
+		t.Run(origin, func(t *testing.T) {
+			t.Setenv("NOC_BASE_URL", origin)
+			c, err := Load()
+			if err != nil || !c.SecureCookie || c.Listen != "127.0.0.1:8080" {
+				t.Fatalf("explicit HTTPS origin rejected or private listener changed: %v", err)
 			}
 		})
 	}

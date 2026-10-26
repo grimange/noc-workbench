@@ -29,7 +29,7 @@ Ctrl-C stops the backend gracefully. `make run` starts it again with migrations 
 | Environment variable | Default / requirement |
 |---|---|
 | `NOC_LISTEN` | `127.0.0.1:8080`; literal loopback IP and valid port |
-| `NOC_BASE_URL` | `http://127.0.0.1:8080`; HTTP origin must match listener; HTTPS requires a separate literal loopback IP/port for a local TLS proxy; canonical IP/port spelling and non-default ports required |
+| `NOC_BASE_URL` | `http://127.0.0.1:8080`; HTTP origin must match listener; HTTPS accepts a separate proxy origin with a canonical lowercase DNS name or IP; omit port 443 and include any nondefault port |
 | `NOC_DATABASE_URL` | Required PostgreSQL URL with explicit user, password, literal loopback IP/port, database and only `sslmode=disable`, `require` or `verify-full` |
 | `NOC_PASSWORD_HASH` | Required bcrypt hash, cost 10–14; helper generates cost 12 |
 | `NOC_SESSION_TTL` | `8h`; allowed 1 minute–24 hours |
@@ -37,7 +37,7 @@ Ctrl-C stops the backend gracefully. `make run` starts it again with migrations 
 | `NOC_DB_PASSWORD` | Required by Compose only; generate locally |
 | `NOC_DB_PORT` | Compose loopback port, default `55432`; update DB URL if changed |
 
-HTTP localhost uses HttpOnly, SameSite=Strict host-only cookies. An HTTPS base URL enables Secure cookies and HSTS; TLS must terminate at an operator-configured trusted local proxy preserving Host and Origin. For example, keep `NOC_LISTEN=127.0.0.1:8080`, set `NOC_BASE_URL=https://127.0.0.1:8443`, and have a trusted loopback TLS proxy on port 8443 forward to port 8080 with the original Host header. The Go listener itself serves HTTP; HTTPS mode intentionally rejects direct browser access at the backend origin. M0 does not provide LAN mode, a proxy, or TLS provisioning. Do not expose the listener publicly or enable a proxy without designing that deployment boundary.
+HTTP localhost uses HttpOnly, SameSite=Strict host-only cookies. An HTTPS base URL enables Secure cookies and HSTS; TLS must terminate at an operator-configured trusted local proxy preserving Host and Origin. For example, keep `NOC_LISTEN=127.0.0.1:8080` and set `NOC_BASE_URL=https://noc.example.invalid:8443` for an explicitly authorized proxy deployment. Configure a real locally resolved hostname and trusted certificate for your environment; the example is synthetic. Preserve the original Host header with its port (`proxy_set_header Host $http_host` in Nginx). The Go listener itself serves HTTP; HTTPS mode rejects direct browser access at the backend origin. Proxy configuration, client access rules and TLS provisioning are deployment responsibilities; see [the security boundary](docs/SECURITY.md). The application ignores forwarded headers and never uses them to select its trusted origin.
 
 The login form and every mutation require CSRF tokens and the exact configured Origin. API/HTTP clients must supply both their session cookie and CSRF token (form field `csrf` or `X-CSRF-Token`) and the Origin header. Login attempts are globally bounded to ten per minute and one concurrent bcrypt operation. Authentication failures intentionally share a generic response. Sessions expire at a fixed TTL; logout revokes the DB session. A workspace setting is local application state, independent of future customer inventory.
 

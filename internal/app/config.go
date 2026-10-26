@@ -23,8 +23,8 @@ type Config struct {
 	SecureCookie   bool
 }
 
-// Load reads environment configuration without logging values. M0 deliberately
-// accepts only literal loopback endpoints; remote deployment is a later feature.
+// Load reads environment configuration without logging values. HTTP listeners and
+// database connections stay on loopback; an explicit HTTPS origin may name a proxy.
 func Load() (Config, error) {
 	c := Config{
 		Listen:       value("NOC_LISTEN", "127.0.0.1:8080"),
@@ -54,8 +54,8 @@ func (c Config) Validate() error {
 		return errors.New("NOC_LISTEN must be a literal loopback IP and port")
 	}
 	u, err := url.Parse(c.BaseURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || !loopbackAddress(u.Host) || (u.Scheme == "http" && (u.Host != c.Listen || u.Port() == "80")) || (u.Scheme == "https" && (u.Host == c.Listen || u.Port() == "443")) || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || u.Path != "" || u.RawPath != "" {
-		return errors.New("NOC_BASE_URL must match the HTTP listener or name a separate literal loopback HTTPS proxy origin")
+	if err != nil || u.String() != c.BaseURL || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || u.Path != "" || u.RawPath != "" || !validOrigin(u, c.Listen) {
+		return errors.New("NOC_BASE_URL must match the loopback HTTP listener or name a canonical HTTPS proxy origin")
 	}
 	u, err = url.Parse(c.DatabaseURL)
 	if err != nil || u == nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !loopbackAddress(u.Host) || u.User == nil || u.User.Username() == "" || u.Fragment != "" || u.Opaque != "" || u.RawPath != "" || len(u.Path) < 2 || strings.Contains(u.Path[1:], "/") {
@@ -89,6 +89,64 @@ func (c Config) Validate() error {
 		return errors.New("secure cookie mode must match the configured origin scheme")
 	}
 	return nil
+}
+
+func validOrigin(u *url.URL, listen string) bool {
+	if u.Scheme == "http" {
+		return u.Host == listen && u.Port() != "80"
+	}
+	if u.Scheme != "https" || u.Host == listen || u.Host == "" {
+		return false
+	}
+	// Browsers omit the default HTTPS port from Origin. Reject noncanonical
+	// spellings rather than accepting a configuration which will reject its users.
+	if port := u.Port(); port != "" {
+		p, err := strconv.Atoi(port)
+		if err != nil || p < 1 || p > 65535 || port != strconv.Itoa(p) || p == 443 {
+			return false
+		}
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		canonical := ip.String()
+		if strings.Contains(canonical, ":") {
+			canonical = "[" + canonical + "]"
+		}
+		if u.Port() != "" {
+			canonical += ":" + u.Port()
+		}
+		return u.Host == canonical
+	}
+	canonical := host
+	if u.Port() != "" {
+		canonical += ":" + u.Port()
+	}
+	if u.Host != canonical || strings.Trim(host, "0123456789.") == "" {
+		return false
+	}
+	// Require a fully qualified ASCII DNS name, without trailing dot or user-
+	// supplied normalization. Host and Origin checks use this exact authority.
+	if len(host) > 253 || !strings.Contains(host, ".") || host != strings.ToLower(host) {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	last := labels[len(labels)-1]
+	// Browsers interpret numeric final labels as IPv4, including hexadecimal
+	// forms, rather than DNS. Require the canonical IP branch above for those.
+	if strings.Trim(last, "0123456789") == "" || strings.HasPrefix(last, "0x") && strings.Trim(last[2:], "0123456789abcdef") == "" {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, ch := range label {
+			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func value(key, fallback string) string {

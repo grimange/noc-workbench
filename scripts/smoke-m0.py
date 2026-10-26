@@ -95,6 +95,21 @@ try:
         "name": "Synthetic lab", "kind": "lab", "status": "active"})
     assert status == 200 and "Environment saved." in html
     environment_path = re.search(r'href="(/customers/[a-f0-9-]+/environments/[a-f0-9-]+/edit)"', html)[1].removesuffix("/edit")
+    topology = environment_path + "/topology"
+    topology_paths = []
+    def create_topology(kind, fields):
+        status, page = request(topology + "/" + kind + "/new", dict(fields, csrf=csrf))
+        assert status == 200 and "Topology saved." in page, "topology write failed: " + kind
+        path = re.search(r'href="([^"?]+/topology/{kind}/[a-f0-9-]+/edit)"'.replace("{kind}", kind), page)[1].removesuffix("/edit")
+        topology_paths.append(path)
+        return path.rsplit("/", 1)[1]
+    cluster_id = create_topology("clusters", {"name": "Synthetic lifecycle cluster", "type": "generic", "lifecycle": "active"})
+    asset_id = create_topology("assets", {"name": "Synthetic lifecycle host", "kind": "server", "lifecycle": "active"})
+    create_topology("endpoints", {"asset_id": asset_id, "protocol": "ssh", "host": "192.0.2.10", "port": "22", "status": "active"})
+    create_topology("memberships", {"cluster_id": cluster_id, "asset_id": asset_id, "role": "web"})
+    service_id = create_topology("services", {"cluster_id": cluster_id, "name": "Synthetic lifecycle service", "service_type": "web", "lifecycle": "active"})
+    instance_id = create_topology("instances", {"service_id": service_id, "name": "Synthetic lifecycle instance", "lifecycle": "active"})
+    create_topology("bindings", {"service_instance_id": instance_id, "asset_id": asset_id, "binding_role": "primary"})
     subprocess.run(compose + ["stop", "db"], check=True, stdout=subprocess.DEVNULL)
     assert request("/healthz")[0] == 503
     assert request("/")[0] == 503
@@ -107,6 +122,8 @@ try:
     assert status == 200 and "synthetic persisted workspace" in html, "state/session lost after restart"
     assert "Synthetic lifecycle customer" in request(customer_path)[1], "customer lost after restart"
     assert "Synthetic lab" in request(environment_path)[1], "environment lost after restart"
+    for path in topology_paths:
+        assert request(path)[0] == 200, "topology lost after app/database restart"
     # Prove the release backup format restores using only this disposable cluster.
     container = subprocess.check_output(compose + ["ps", "-q", "db"], text=True).strip()
     dbtools = ["docker", "exec", container]
@@ -116,7 +133,7 @@ try:
         backup.seek(0)
         subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "noc_workbench", "-d", "nw_restore_smoke", "--exit-on-error"], stdin=backup, check=True)
     restored = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT (SELECT count(*) FROM schema_migration),(SELECT count(*) FROM customer),(SELECT count(*) FROM environment),(SELECT note FROM operator_setting WHERE id=1)"], text=True).strip()
-    assert restored == "3|1|1|synthetic persisted workspace", "database backup restore mismatch"
+    assert restored == "4|1|1|synthetic persisted workspace", "database backup restore mismatch"
     subprocess.run(dbtools + ["dropdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)
     csrf = token(html)
     assert request("/logout", {"csrf": csrf})[0] == 200

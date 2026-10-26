@@ -47,6 +47,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Topology                                                   topologyData
 	CSRF, Label, Error, Title, Active, Heading, Action, Notice string
 	Customer                                                   inventory.Customer
 	Environment                                                inventory.Environment
@@ -80,6 +81,12 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}", s.environmentDetail)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/edit", s.environmentForm)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/edit", s.environmentForm)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/topology", s.topology)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/topology/{kind}", s.topology)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/topology/{kind}/{record}", s.topology)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/topology/{kind}/{record}/{operation}", s.topology)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/topology/{kind}/{record}", s.topology)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/topology/{kind}/{record}/{operation}", s.topology)
 	static, _ := fs.Sub(assets, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

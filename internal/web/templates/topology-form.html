@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head>{{template "head"}}<title>Topology · NOC Workbench</title></head><body>{{template "app-header" .}}<div class="app-layout">{{template "app-nav" .}}<main class="workspace" id="main-content" tabindex="-1">
+<div class="context-bar"><a href="/customers">Customers</a><span>/</span><a href="/customers/{{.Customer.ID}}">{{.Customer.ShortCode}}</a><span>/</span><a href="/customers/{{.Customer.ID}}/environments/{{.Environment.ID}}">{{.Environment.Name}}</a><span>/</span><a href="{{.Topology.Base}}">Topology</a></div>
+<header class="page-heading"><div><p class="eyebrow">{{.Environment.Name}} · {{.Environment.Status}}</p><h1>{{.Heading}}</h1><p>Ownership is fixed. Restore archived owners and references before making active assignments.</p></div></header><section class="panel form-panel">{{template "field-summary" .}}
+<form method="post" action="{{.Action}}" class="form-stack" data-pending><input type="hidden" name="csrf" value="{{.CSRF}}">
+{{range .Topology.Inputs}}<div class="field"><label for="field-{{.Name}}">{{.Label}}{{if not .Required}} <span class="optional">(optional)</span>{{end}}</label>
+{{if .Check}}<input id="field-{{.Name}}" type="checkbox" name="{{.Name}}" value="true" {{if .Checked}}checked{{end}}>
+{{else if .ReadOnly}}{{$value := .Value}}<input type="hidden" name="{{.Name}}" value="{{.Value}}"><select id="field-{{.Name}}" disabled>{{range .Options}}<option value="{{.Value}}" {{if eq .Value $value}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+{{else if .Options}}{{$value := .Value}}<select id="field-{{.Name}}" name="{{.Name}}" {{if .Required}}required{{end}} {{if index $.Fields .Name}}aria-invalid="true"{{end}}>{{range .Options}}<option value="{{.Value}}" {{if eq .Value $value}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+{{else}}<input id="field-{{.Name}}" name="{{.Name}}" value="{{.Value}}" maxlength="{{.Max}}" {{if eq .Name "port"}}type="number" min="1" max="65535"{{end}} {{if .Required}}required{{end}} {{if index $.Fields .Name}}aria-invalid="true"{{end}}>{{end}}
+{{with index $.Fields .Name}}<p class="field-help">{{.}}</p>{{end}}</div>{{end}}
+<div class="form-actions"><button class="button button-primary" type="submit" data-pending-label="Saving…">Save</button><a class="button button-quiet" href="{{.Topology.Back}}">Cancel</a></div></form></section>
+</main></div></body></html>

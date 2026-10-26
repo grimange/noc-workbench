@@ -479,6 +479,7 @@ func (s *Server) topology(w http.ResponseWriter, r *http.Request) {
 	}
 	if id != "" {
 		d.Topology.Removing = kind == "memberships" || kind == "bindings"
+		s.workspaceVisit(r, kind, id)
 		s.render(w, "topology-detail.html", d)
 		return
 	}

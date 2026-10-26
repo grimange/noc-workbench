@@ -86,7 +86,7 @@ func TestIntegrationEmptyMigrationPersistenceAndSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err = s.pool.QueryRow(ctx, "SELECT count(*) FROM schema_migration").Scan(&count); err != nil || count != 4 {
+	if err = s.pool.QueryRow(ctx, "SELECT count(*) FROM schema_migration").Scan(&count); err != nil || count != 5 {
 		t.Fatalf("migrations=%d err=%v", count, err)
 	}
 	if err = s.Migrate(ctx); err != nil {

@@ -47,6 +47,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Workspace                                                  workspaceData
 	Topology                                                   topologyData
 	CSRF, Label, Error, Title, Active, Heading, Action, Notice string
 	Customer                                                   inventory.Customer
@@ -64,6 +65,9 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /workspace", s.operatorWorkspace)
+	mux.HandleFunc("GET /workspace/{targetkind}/{targetid}", s.operatorWorkspace)
+	mux.HandleFunc("POST /workspace/{targetkind}/{targetid}", s.operatorWorkspace)
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
@@ -112,7 +116,7 @@ func New(store Store, options Options) http.Handler {
 			limit := int64(8192)
 			// A valid 4096-byte note can require three times as many bytes in
 			// a native URL-encoded form. Keep authentication/settings limits small.
-			if r.Method == http.MethodPost && (r.URL.Path == "/customers" || strings.HasPrefix(r.URL.Path, "/customers/")) {
+			if r.Method == http.MethodPost && (r.URL.Path == "/customers" || strings.HasPrefix(r.URL.Path, "/customers/") || strings.HasPrefix(r.URL.Path, "/workspace/")) {
 				limit = 16384
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, limit)

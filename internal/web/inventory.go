@@ -37,6 +37,10 @@ func (s *Server) inventoryFailure(w http.ResponseWriter, d pageData, err error) 
 		status = http.StatusConflict
 		d.Error = "This customer is archived. Restore it before changing environments."
 	}
+	if errors.Is(err, inventory.ErrInactive) {
+		status = http.StatusConflict
+		d.Error = "This record or its owner is archived. Restore it before adding active workspace assignments."
+	}
 	s.renderStatus(w, status, "inventory-error.html", d)
 }
 func (s *Server) customers(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +75,7 @@ func (s *Server) customerDetail(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("saved") == "1" {
 		d.Notice = "Customer saved."
 	}
+	s.workspaceVisit(r, "customers", d.Customer.ID)
 	s.render(w, "customer-detail.html", d)
 }
 func (s *Server) customerForm(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +141,7 @@ func (s *Server) environmentDetail(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("saved") == "1" {
 		d.Notice = "Environment saved."
 	}
+	s.workspaceVisit(r, "environments", d.Environment.ID)
 	s.render(w, "environment-detail.html", d)
 }
 func (s *Server) environmentForm(w http.ResponseWriter, r *http.Request) {

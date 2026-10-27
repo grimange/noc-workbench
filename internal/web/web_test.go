@@ -135,7 +135,7 @@ func TestAuthenticationCSRFAndLogout(t *testing.T) {
 	if w := request(h, "POST", "/settings", url.Values{"csrf": {s.CSRFToken}, "label": {"<script>test</script>"}}, c); w.Code != 303 {
 		t.Fatalf("mutation %d", w.Code)
 	}
-	w := request(h, "GET", "/", nil, c)
+	w := request(h, "GET", "/settings", nil, c)
 	if w.Code != 200 || strings.Contains(w.Body.String(), "<script>") || !strings.Contains(w.Body.String(), "&lt;script&gt;") {
 		t.Fatal("HTML escaping/landing")
 	}
@@ -316,7 +316,7 @@ func TestHTTPSProxyAuthentication(t *testing.T) {
 				return resp.StatusCode, string(body)
 			}
 			status, html := post("/login", url.Values{"csrf": {login.Value}, "password": {"synthetic-test-password"}}, origin)
-			if status != 200 || !strings.Contains(html, "Workspace settings") {
+			if status != 200 || !strings.Contains(html, "Dashboard") {
 				t.Fatalf("HTTPS login: %d", status)
 			}
 			_, tail, found := strings.Cut(html, `name="csrf" value="`)

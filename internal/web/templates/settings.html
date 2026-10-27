@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head>{{template "head"}}<title>Settings · NOC Workbench</title></head><body>{{template "app-header" .}}<div class="app-layout">{{template "app-nav" .}}<main class="workspace" id="main-content" tabindex="-1"><h1>Settings</h1>      <section class="panel" id="workspace-settings" aria-labelledby="settings-title">
+        <div class="panel-heading"><span class="section-number" aria-hidden="true">01</span><div><h2 id="settings-title">Workspace settings</h2><p>Make this workspace easy to recognize.</p></div></div>
+        <form method="post" action="/settings" class="form-stack" data-pending>
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <div class="field"><label for="workspace-label">Workspace label</label><input id="workspace-label" name="label" value="{{.Label}}" maxlength="120" aria-describedby="label-help" placeholder="e.g. Operations workspace"><p class="field-help" id="label-help">Saved locally and retained across restarts. Up to 120 bytes.</p></div>
+          <div class="form-actions"><button class="button button-primary" type="submit" data-pending-label="Saving…">Save changes</button></div>
+        </form>
+      </section>
+</main></div></body></html>

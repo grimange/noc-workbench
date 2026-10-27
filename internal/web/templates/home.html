@@ -1,31 +1,5 @@
-<!doctype html>
-<html lang="en">
-<head>{{template "head"}}<title>Workspace · NOC Workbench</title></head>
-<body>
-{{template "app-header" .}}
-<div class="app-layout">
-  {{template "app-nav" .}}
-  <main class="workspace" id="main-content" tabindex="-1">
-    <div class="context-bar"><span>Workspace</span><span aria-hidden="true">/</span><span>Overview</span></div>
-    <header class="page-heading"><div><p class="eyebrow">Your operations workspace</p><h1>Workspace overview</h1><p>A focused place to organize infrastructure and investigate with context.</p></div><span class="badge badge-neutral">Foundation</span></header>
-    <section class="panel"><h2>Find your next target</h2><p>Search inventory, return to pinned and recent records, and keep operational context close at hand.</p><a class="button button-primary" href="/workspace">Open operator workspace</a></section>
-    <div class="content-grid">
-      <section class="panel" id="workspace-settings" aria-labelledby="settings-title">
-        <div class="panel-heading"><span class="section-number" aria-hidden="true">01</span><div><h2 id="settings-title">Workspace settings</h2><p>Make this workspace easy to recognize.</p></div></div>
-        <form method="post" action="/settings" class="form-stack" data-pending>
-          <input type="hidden" name="csrf" value="{{.CSRF}}">
-          <div class="field"><label for="workspace-label">Workspace label</label><input id="workspace-label" name="label" value="{{.Label}}" maxlength="120" aria-describedby="label-help" placeholder="e.g. Operations workspace"><p class="field-help" id="label-help">Saved locally and retained across restarts. Up to 120 bytes.</p></div>
-          <div class="form-actions"><button class="button button-primary" type="submit" data-pending-label="Saving…">Save changes</button></div>
-        </form>
-      </section>
-      <section class="panel panel-muted" aria-labelledby="inventory-title">
-        <div class="panel-heading"><span class="section-number" aria-hidden="true">02</span><div><h2 id="inventory-title">Infrastructure inventory</h2><p>Customers and their environments.</p></div></div>
-        <div class="empty-state"><svg class="empty-symbol" aria-hidden="true" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="6" y="4" width="20" height="24" rx="3"/><path d="M10 11h12M10 16h12M10 21h7"/></svg><h3>Customer inventory</h3><p>Organize customer records and their environments in one place.</p><a class="button button-primary" href="/customers">Open customers</a></div>
-      </section>
-    </div>
-    <aside class="notice notice-info"><strong>A foundation for focused operations</strong><p>Customer and environment inventory is available. Collection is not enabled; no remote observations or service health are available.</p></aside>
-    <footer class="workspace-footer">NOC Workbench <span>Local-first infrastructure operations</span></footer>
-  </main>
-</div>
-</body>
-</html>
+<!doctype html><html lang="en"><head>{{template "head"}}<title>Dashboard · NOC Workbench</title></head><body>{{template "app-header" .}}<div class="app-layout">{{template "app-nav" .}}<main class="workspace" id="main-content" tabindex="-1">
+<header class="page-heading"><div><p class="eyebrow">{{if .Label}}{{.Label}}{{else}}Monitoring{{end}}</p><h1>Dashboard</h1><p>Select a server to view its information, services and stored observations.</p></div></header>
+<section class="panel"><form method="get" action="/" class="form-stack"><div class="field"><label for="server-search">Find a server</label><input id="server-search" name="q" value="{{.Dashboard.Query}}" maxlength="120" placeholder="Server name, IP, hostname or customer"></div><button class="button button-primary" type="submit">Search servers</button></form></section>
+<section class="panel"><h2>Servers</h2><p>Active servers in active customer environments. Cluster membership is optional.</p><div class="table-scroll"><table><thead><tr><th scope="col">Server</th><th scope="col">Primary IP / hostname</th><th scope="col">Customer</th><th scope="col">Clusters</th></tr></thead><tbody>{{range .Dashboard.Servers}}<tr><td><a href="/servers/{{.ID}}">{{.Name}}</a></td><td>{{if .Address}}{{.Address}}{{else}}Unknown — no active endpoint{{end}}</td><td>{{.Customer}}</td><td>{{range .Clusters}}<div>{{.Name}}{{if eq .Lifecycle "archived"}} (archived){{end}}</div>{{else}}No cluster assigned{{end}}</td></tr>{{else}}<tr><td colspan="4">No matching servers. <a href="/customers">Manage inventory</a>.</td></tr>{{end}}</tbody></table></div><nav aria-label="Server pages">{{with .Dashboard.Previous}}<a class="button" href="{{.}}">Previous</a>{{end}} {{with .Dashboard.Next}}<a class="button" href="{{.}}">Next</a>{{end}}</nav></section>
+</main></div></body></html>

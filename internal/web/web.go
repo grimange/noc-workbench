@@ -56,6 +56,8 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Dashboard                                                  dashboardData
+	Server                                                     serverData
 	API                                                        apiData
 	VICIdial                                                   vicidialData
 	Monitoring                                                 monitoringData
@@ -112,6 +114,8 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("GET /{$}", s.home)
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("POST /settings", s.settings)
+	mux.HandleFunc("GET /settings", s.settingsPage)
+	mux.HandleFunc("GET /servers/{asset}", s.serverDetails)
 	mux.HandleFunc("GET /customers", s.customers)
 	mux.HandleFunc("GET /customers/new", s.customerForm)
 	mux.HandleFunc("POST /customers", s.customerForm)
@@ -295,7 +299,7 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	s.render(w, "home.html", pageData{CSRF: session.CSRFToken, Label: label})
+	s.dashboard(w, r, pageData{CSRF: session.CSRFToken, Label: label})
 }
 func (s *Server) mutation(w http.ResponseWriter, r *http.Request) (postgres.Session, bool) {
 	session, ok := s.session(w, r)

@@ -82,7 +82,7 @@ try:
     csrf = token(request("/login")[1])
     assert request("/login", {"csrf": csrf, "password": "wrong"})[0] == 401
     status, html = request("/login", {"csrf": csrf, "password": "synthetic-smoke-password"})
-    assert status == 200 and "Workspace settings" in html
+    assert status == 200 and "Dashboard" in html
     csrf = token(html)
     assert request("/settings", {"label": "forged"})[0] == 403
     assert request("/settings", {"label": "synthetic persisted workspace"}, csrf)[0] == 200

@@ -43,6 +43,8 @@ type Result struct {
 	Diagnostics                              []Diagnostic
 }
 type Run struct {
+	Source, ScheduleID               string
+	ScheduleRevision                 int64
 	ID, State, Category, PrincipalID string
 	SuccessCount, FailureCount       int
 	EndpointRevision                 time.Time

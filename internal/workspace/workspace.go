@@ -18,6 +18,7 @@ type Principal struct{ ID string }
 type Permission string
 
 const (
+	ScheduleManage  Permission = "collection.schedule.manage"
 	InventoryExport Permission = "inventory.export.sanitized"
 	InventoryImport Permission = "inventory.import"
 	Search          Permission = "inventory.search"
@@ -48,7 +49,7 @@ func (LocalOperatorPolicy) Scope(p Principal, permission Permission) (Scope, err
 		return Scope{}, ErrDenied
 	}
 	switch permission {
-	case Search, Organize, NotesRead, NotesWrite, LinksWrite, CommandCopy, InventoryExport, InventoryImport:
+	case ScheduleManage, Search, Organize, NotesRead, NotesWrite, LinksWrite, CommandCopy, InventoryExport, InventoryImport:
 		return Scope{All: true}, nil
 	}
 	return Scope{}, ErrDenied

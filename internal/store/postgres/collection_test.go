@@ -317,7 +317,9 @@ func TestIntegrationCollectionWriteFailureRecovery(t *testing.T) {
 }
 
 // Apply the exact accepted NW-009 embedded scripts, then upgrade and reopen.
-func TestIntegrationNW009Upgrade(t *testing.T) {
+func TestIntegrationNW009Upgrade(t *testing.T) { testUpgrade(t, "007", 6) }
+func TestIntegrationNW010Upgrade(t *testing.T) { testUpgrade(t, "008", 7) }
+func testUpgrade(t *testing.T, before string, priorCount int) {
 	ctx := context.Background()
 	dsn := isolatedDSN(t)
 	pool, e := pgxpool.New(ctx, dsn)
@@ -337,11 +339,11 @@ func TestIntegrationNW009Upgrade(t *testing.T) {
 	}
 	names = names[:0]
 	for _, entry := range entries {
-		if entry.Name() < "007" {
+		if entry.Name() < before {
 			names = append(names, entry.Name())
 		}
 	}
-	if len(names) != 6 {
+	if len(names) != priorCount {
 		t.Fatal("NW-009 baseline migration count")
 	}
 	for _, name := range names {
@@ -371,7 +373,7 @@ func TestIntegrationNW009Upgrade(t *testing.T) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 7 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 8 {
 		t.Fatal("upgrade history", e, count)
 	}
 	var name string

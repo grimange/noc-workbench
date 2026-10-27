@@ -21,6 +21,7 @@
   <p class="nav-label">Workspace</p>
  <form action="/workspace" method="get" class="nav-search"><label class="sr-only" for="nav-query">Search inventory</label><input id="nav-query" name="q" maxlength="120" placeholder="Search inventory…"><button class="button button-quiet" type="submit">Search</button></form>
   <a class="nav-item" href="/" {{if eq .Active ""}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 7h12M7 7v7"/></svg> Overview</a>
+  <a class="nav-item" href="/scheduler" {{if eq .Active "scheduler"}}aria-current="page"{{end}}>Collection scheduler</a>
   <a class="nav-item" href="/workspace" {{if eq .Active "workspace"}}aria-current="page"{{end}}>Search &amp; Quick Access</a>
   <a class="nav-item" href="/customers" {{if eq .Active "customers"}}aria-current="page"{{end}}>Customers</a>
   <a class="nav-item" href="/inventory/interchange" {{if eq .Active "interchange"}}aria-current="page"{{end}}>Import &amp; export</a>

@@ -16,6 +16,7 @@ import (
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/inventory"
+	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/security"
 	"noc-workbench/internal/store/postgres"
 )
@@ -33,6 +34,7 @@ type Store interface {
 	SetNote(context.Context, string) error
 }
 type Options struct {
+	Scheduler             *scheduler.Service
 	Enrollment            *connections.Service
 	Discovery             *collection.Service
 	BaseURL, PasswordHash string
@@ -51,6 +53,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Scheduling                                                 schedulingData
 	Enrollment                                                 enrollmentData
 	Discovery                                                  discoveryData
 	Interchange                                                interchangeData
@@ -72,6 +75,9 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /scheduler", s.schedulerPage)
+	mux.HandleFunc("POST /scheduler", s.schedulerPage)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/schedule", s.assetSchedule)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/linux", s.linuxDiscovery)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/linux", s.linuxDiscovery)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/ssh", s.sshEnrollment)

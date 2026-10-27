@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"noc-workbench/internal/scheduler"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,11 +23,11 @@ func collectionAccess(p workspace.Principal, h collection.HistoryScope) error {
 	return nil
 }
 
-const runColumns = `id::text,asset_id::text,endpoint_id::text,profile_id::text,profile_revision,endpoint_revision,principal_id::text,started_at,ended_at,state,category,success_count,failure_count`
+const runColumns = `id::text,asset_id::text,endpoint_id::text,profile_id::text,profile_revision,endpoint_revision,principal_id::text,started_at,ended_at,state,category,success_count,failure_count,request_source,coalesce(schedule_id::text,''),coalesce(schedule_revision,0)`
 
 func scanRun(row pgx.Row) (r collection.Run, err error) {
 	var ended *time.Time
-	err = row.Scan(&r.ID, &r.Target.AssetID, &r.Target.EndpointID, &r.Target.ProfileID, &r.Target.ProfileVersion, &r.EndpointRevision, &r.PrincipalID, &r.StartedAt, &ended, &r.State, &r.Category, &r.SuccessCount, &r.FailureCount)
+	err = row.Scan(&r.ID, &r.Target.AssetID, &r.Target.EndpointID, &r.Target.ProfileID, &r.Target.ProfileVersion, &r.EndpointRevision, &r.PrincipalID, &r.StartedAt, &ended, &r.State, &r.Category, &r.SuccessCount, &r.FailureCount, &r.Source, &r.ScheduleID, &r.ScheduleRevision)
 	if ended != nil {
 		r.EndedAt = *ended
 	}
@@ -44,10 +46,36 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 		return collection.Run{}, ErrUnavailable
 	}
 	defer tx.Rollback(context.Background())
+	var paused, stopped bool
+	if e = tx.QueryRow(ctx, `SELECT paused,stopped FROM scheduler_control WHERE id FOR SHARE`).Scan(&paused, &stopped); e != nil || stopped {
+		return collection.Run{}, workspace.ErrDenied
+	}
 	if e = lockEnrollmentOwners(ctx, tx, r); e != nil {
 		return collection.Run{}, e
 	}
-	out, e := scanRun(tx.QueryRow(ctx, `INSERT INTO collection_run(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,endpoint_revision,principal_id) SELECT customer_id,environment_id,asset_id,endpoint_id,id,revision,$1,$2 FROM connection_profile WHERE id=$3 AND revision=$4 AND state='connection_verified' AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=$3) RETURNING `+runColumns, r.Details.EndpointUpdatedAt, p.ID, r.ID, r.Revision))
+	req := collection.Requested(ctx)
+	ids := []string{"linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems"}
+	var scheduleID any
+	var scheduleRevision any
+	var profile scheduler.Profile
+	if req.Source == "scheduled" {
+		if paused {
+			return collection.Run{}, workspace.ErrDenied
+		}
+		profile, e = validateScheduleAdmission(ctx, tx, r, req)
+		if e != nil {
+			return collection.Run{}, e
+		}
+		scheduleID = profile.ID
+		scheduleRevision = profile.Revision
+		ids = profile.Collectors
+	} else if req.Source != "operator" || len(req.Collectors) > 0 {
+		return collection.Run{}, workspace.ErrDenied
+	}
+	out, e := scanRun(tx.QueryRow(ctx, `INSERT INTO collection_run(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,endpoint_revision,principal_id,request_source,schedule_id,schedule_revision,collector_ids) SELECT customer_id,environment_id,asset_id,endpoint_id,id,revision,$1,$2,$5,$6,$7,$8 FROM connection_profile WHERE id=$3 AND revision=$4 AND state='connection_verified' AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=$3) RETURNING `+runColumns, r.Details.EndpointUpdatedAt, p.ID, r.ID, r.Revision, req.Source, scheduleID, scheduleRevision, ids))
+	if e == nil && req.Source == "scheduled" {
+		_, e = tx.Exec(ctx, `UPDATE collection_schedule SET last_dispatch=$1,next_due=$2,state='running',category='',lag_seconds=greatest(0,extract(epoch FROM $1-next_due)) WHERE id=$3`, out.StartedAt, scheduler.Next(profile, out.StartedAt), profile.ID)
+	}
 	if e != nil || tx.Commit(ctx) != nil {
 		return out, ErrUnavailable
 	}
@@ -57,7 +85,7 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 var safeDiagnostic = regexp.MustCompile(`^[a-z_]{1,80}$`)
 
 func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r collection.Run, ttl int) error {
-	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || len(r.Results) != 5 || ttl < 1 || ttl > 86400 {
+	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 5) || ttl < 1 || ttl > 86400 {
 		return collection.ErrPersistence
 	}
 	r.Summarize()
@@ -69,6 +97,19 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 	var target collection.Run
 	target, e = scanRun(tx.QueryRow(ctx, `SELECT `+runColumns+` FROM collection_run WHERE id=$1 AND principal_id=$2 AND state='running' FOR UPDATE`, r.ID, p.ID))
 	if e != nil || target.Target != r.Target {
+		return collection.ErrPersistence
+	}
+	var expected []string
+	if tx.QueryRow(ctx, `SELECT collector_ids FROM collection_run WHERE id=$1`, r.ID).Scan(&expected) != nil {
+		return collection.ErrPersistence
+	}
+	got := []string{}
+	for _, c := range r.Results {
+		got = append(got, c.CollectorID)
+	}
+	sort.Strings(expected)
+	sort.Strings(got)
+	if !reflect.DeepEqual(expected, got) {
 		return collection.ErrPersistence
 	}
 	for _, c := range r.Results {

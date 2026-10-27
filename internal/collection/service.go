@@ -23,7 +23,7 @@ type Service struct {
 	registry            *Registry
 	executor            Executor
 	mu                  sync.Mutex
-	busy                map[string]bool
+	admission           admission
 	latest              map[string]cached
 }
 type cached struct {
@@ -32,44 +32,89 @@ type cached struct {
 }
 
 func NewService(e Executor, r *Registry, repositories ...HistoryRepository) *Service {
-	s := &Service{executor: e, registry: r, TTLSeconds: 180, RunDays: 30, SampleDays: 7, busy: map[string]bool{}, latest: map[string]cached{}}
+	s := &Service{executor: e, registry: r, TTLSeconds: 180, RunDays: 30, SampleDays: 7, latest: map[string]cached{}}
 	if len(repositories) > 0 {
 		s.repository = repositories[0]
 	}
 	return s
 }
 func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.Target) (Run, error) {
-	s.mu.Lock()
-	if s.busy[t.AssetID] || len(s.busy) >= 5 {
-		s.mu.Unlock()
-		return Run{}, ErrBusy
+	req := Requested(ctx)
+	ids := req.Collectors
+	if len(ids) == 0 {
+		ids = s.registry.IDs()
 	}
-	s.busy[t.AssetID] = true
-	s.mu.Unlock()
-	defer func() { s.mu.Lock(); delete(s.busy, t.AssetID); s.mu.Unlock() }()
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Validate before admission or durable history: unknown/duplicate IDs execute nothing.
+	seen := map[string]bool{}
+	approved := map[string]bool{}
+	for _, id := range s.registry.IDs() {
+		approved[id] = true
+	}
+	for _, id := range ids {
+		if !approved[id] || seen[id] {
+			return Run{}, ErrUnknown
+		}
+		seen[id] = true
+	}
+	budget := 10 * time.Second
+	if req.Source == "scheduled" {
+		budget = req.Budget
+		if budget < time.Second || budget > 20*time.Second {
+			return Run{}, ErrUnknown
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	scope := AdmissionScope{}
+	if repo, ok := s.repository.(interface {
+		CollectionAdmissionScope(context.Context, workspace.Principal, sshcli.Target) (AdmissionScope, error)
+	}); ok {
+		var e error
+		scope, e = repo.CollectionAdmissionScope(ctx, p, t)
+		if e != nil {
+			if ctx.Err() != nil {
+				return Run{}, ctx.Err()
+			}
+			return Run{}, ErrPersistence
+		}
+	}
+	var release func()
+	var err error
+	ctx, release, err = s.admission.acquire(ctx, t.AssetID, req.Source == "scheduled", scope)
+	if err != nil {
+		return Run{}, err
+	}
+	defer release()
 	var durable Run
 	if s.repository != nil {
 		if m, ok := s.repository.(interface {
 			MaintainCollections(context.Context, time.Time, int, int) error
 		}); ok {
 			if m.MaintainCollections(ctx, time.Now().UTC(), s.RunDays, s.SampleDays) != nil {
+				if ctx.Err() != nil {
+					return Run{}, ctx.Err()
+				}
 				return Run{}, ErrPersistence
 			}
 		}
 		var err error
 		durable, err = s.repository.BeginCollection(ctx, p, t)
 		if err != nil {
+			if ctx.Err() != nil {
+				return Run{}, ctx.Err()
+			}
 			return Run{}, ErrPersistence
 		}
 	}
-	run, err := s.registry.Collect(ctx, s.executor, p, t, s.registry.IDs())
+	run, err := s.registry.Collect(ctx, s.executor, p, t, ids)
 	if err != nil {
 		return run, err
 	}
 	if s.repository != nil {
 		run.ID = durable.ID
+		run.Source = durable.Source
+		run.ScheduleID = durable.ScheduleID
+		run.ScheduleRevision = durable.ScheduleRevision
 		run.PrincipalID = p.ID
 		run.StartedAt = durable.StartedAt
 		run.EndpointRevision = durable.EndpointRevision

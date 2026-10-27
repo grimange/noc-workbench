@@ -55,6 +55,22 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 		s.inventoryFailure(w, d, err)
 		return
 	}
+	if s.options.Scheduler != nil {
+		status, e := s.options.Scheduler.Status(r.Context(), operatorPrincipal())
+		if e != nil {
+			s.inventoryFailure(w, d, e)
+			return
+		}
+		d.Scheduling.Available = true
+		d.Scheduling.Status = status
+		d.Scheduling.Collectors = []string{"linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems"}
+		for _, p := range status.Profiles {
+			if p.AssetID == d.Enrollment.Asset.ID && p.CustomerID == d.Customer.ID && p.EnvironmentID == d.Environment.ID {
+				d.Scheduling.Profile = p
+				d.Scheduling.Exists = true
+			}
+		}
+	}
 	if r.Method == http.MethodPost {
 		rev, e := strconv.ParseInt(r.PostForm.Get("revision"), 10, 64)
 		if e != nil {

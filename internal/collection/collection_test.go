@@ -128,3 +128,50 @@ func TestConcurrentRequestGuardAndSnapshotIsolation(t *testing.T) {
 		t.Fatal("cross actor")
 	}
 }
+
+func TestCollectionBudgetIncludesAdmissionWait(t *testing.T) {
+	f := &fake{block: make(chan struct{})}
+	svc := collection.NewService(f, linux.Registry())
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := range 5 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = svc.Collect(ctx, workspace.Principal{}, sshcli.Target{AssetID: string(rune('a' + i))})
+		}()
+	}
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		f.mu.Lock()
+		n := f.calls
+		f.mu.Unlock()
+		if n == 5 {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("execution barrier")
+		case <-ticker.C:
+		}
+	}
+	start := time.Now()
+	queued := collection.WithRequest(ctx, collection.Request{Source: "scheduled", Collectors: []string{"linux.uptime"}, Budget: time.Second})
+	_, e := svc.Collect(queued, workspace.Principal{}, sshcli.Target{AssetID: "queued"})
+	elapsed := time.Since(start)
+	if !errors.Is(e, context.DeadlineExceeded) || elapsed > 1500*time.Millisecond {
+		t.Errorf("admission exceeded total budget: %v %s", e, elapsed)
+	}
+	f.mu.Lock()
+	n := f.calls
+	f.mu.Unlock()
+	if n != 5 {
+		t.Error("expired queued request executed SSH", n)
+	}
+	close(f.block)
+	wg.Wait()
+}

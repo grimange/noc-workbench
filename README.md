@@ -106,7 +106,7 @@ Profiles use structured values rather than arbitrary SSH configuration: asset/en
 
 OpenSSH runs with `-F /dev/null`, pinned destination, temporary protected known-host and credential snapshots, strict host-key checking, public-key-only noninteractive authentication, no agent, TTY, forwarding, executable hooks or multiplexing. DNS must still resolve exclusively to the approved IP; connections use that pinned IP. Jump hosts are unsupported and cannot be supplied through a profile. `Inspect` returns bounded, untrusted key candidates; `Trust` requires independent fingerprint evidence and never automatically enrolls or replaces a key.
 
-Each shared executor defaults to five concurrent assets, one command per asset, a five-second total budget (including queueing), a five-second connection budget and 64 KiB combined output. Limits can be reduced; callers must reuse the executor to share its concurrency budget. Cancellation/output limits kill the child process group and reap the direct child. Results contain actor/target/command metadata, UTC timestamps, duration, exit status and a typed failure category. Raw stderr is discarded; stdout is transient caller data and must not be logged by default. Exit 255 without a recognized diagnostic is `internal_transport_error`. These are transport outcomes, never service-health assessments. Future collectors may register separate reviewed budgets up to the plan's 20-second initial allowance; no collectors or scheduler are included here.
+Each shared executor defaults to five concurrent assets, one command per asset, a five-second total budget (including queueing), a five-second connection budget and 64 KiB combined output. Limits can be reduced; callers must reuse the executor to share its concurrency budget. Cancellation/output limits kill the child process group and reap the direct child. Results contain actor/target/command metadata, UTC timestamps, duration, exit status and a typed failure category. Raw stderr is discarded; stdout is transient caller data and must not be logged by default. Exit 255 without a recognized diagnostic is `internal_transport_error`. These are transport outcomes, never service-health assessments. Future collectors may register separate reviewed budgets up to the plan's 20-second initial allowance; collectors use this same executor.
 
 Run deterministic tests with `go test -race ./internal/transport/sshcli`. Explicitly authorize the disposable loopback-only real OpenSSH fixture with:
 
@@ -187,8 +187,7 @@ transaction (at most 2000 expired nonlatest observations and 200 empty expired r
 summaries). Latest valid key/mount series and their parent provenance are retained
 indefinitely, even beyond the windows. This preserves last-known evidence; changing
 mount names can increase the number of retained series. The display caps at 2048
-series and explicitly reports incomplete output. Maintenance is demand-driven;
-there is no scheduler, background collection or automatic retry.
+series and explicitly reports incomplete output. Maintenance runs within bounded manual and scheduled collection requests.
 
 Before each approved SSH operation, a durable uncertainty marker is committed in
 the existing profile's scope. A changed or unknown host key clears approval and
@@ -213,3 +212,54 @@ server under the current ordinary account and isolated PostgreSQL schemas,
 including actual HTTP discovery and independent `/proc`, hostname, kernel and
 filesystem comparisons. Test-created keys, daemons, schemas and DB volumes are
 removed by their fixtures. No existing enrollment is contacted by these tests.
+
+
+### Bounded Linux scheduling (NW-011)
+
+Scheduling is optional. Existing inventory and verified SSH enrollments receive no
+schedule during migration. On an asset’s Linux Facts page, select registered Linux
+collectors, a 60–86400-second interval, and explicitly authorize continuous polling.
+Each asset has at most one profile. Editing captures the current verified enrollment
+and endpoint revision; queued work revalidates these and all live scope controls
+before committing a durable attempt. Disabled/archived scopes, revoked authority,
+changed identity and unavailable credentials cannot authorize SSH execution.
+
+The in-process scheduler uses one one-second timer, at most 1000 profiles and a
+32-profile pending queue. Manual and scheduled requests share a five-asset admission
+limit, one active request per asset and a separate 32-request admission queue.
+Alternating manual/scheduled admissions preserve progress for both. Scheduled jobs
+rotate customers and clusters. Shared admission caps both manual and scheduled work
+at three active jobs per customer and two per cluster (all memberships count). These caps can leave capacity unused in small
+single-scope fleets. More than 1000 cluster memberships blocks a profile. Scope pause
+controls are bounded to 3000 records. These initial limits are fixed policy bounds.
+
+Initial and resumed execution is staggered over the configured interval. Subsequent
+cadences add deterministic positive jitter of up to 10%; overdue polls coalesce into
+one new attempt. Restart never replays interrupted commands or missed intervals.
+At most one retry follows an entirely failed attempt whose individual transport
+outcomes are explicitly transient connection/DNS failures, after 5–7 seconds.
+Authentication, host identity, permission, configuration, parser and command-deadline
+failures do not retry. Every actual attempt uses NW-010 history with `scheduled`
+source, profile ID/revision and the exact approved collector subset.
+
+The Scheduler workspace shows measured capacity, due/dispatch times, lag, skipped
+queue decisions and retries. Global, customer, cluster, asset and profile pauses
+prevent new scheduled work while allowing active work to finish. Resume coalesces
+due work. Global emergency stop also rejects manual collection, cancels active
+requests and survives restart until explicitly released. Pause and emergency stop
+are independent controls; resuming a pause cannot release a stop. These states
+express execution policy and collection lag, without evaluating operational health.
+
+Only one application process may own execution. A dedicated PostgreSQL advisory-lock
+session enforces this before trust/interrupted-run recovery and scheduler startup.
+Loss of that session cancels collection and exits unsuccessfully; the deployed
+systemd service restarts and reacquires ownership after database recovery. No SSH
+starts without committing its durable run. Startup reconciliation preserves the M2
+trust uncertainty gate and marks interrupted evidence accurately. Run one active
+application against a database; multiple active instances are unsupported.
+
+`go test -race ./internal/collection ./internal/scheduler` exercises fake-clock and
+barrier-controlled queue, cancellation and mixed-scope load cases. Authorized
+`NOC_SSH_LAB=1 ./scripts/test-m0` adds actual PostgreSQL migration/authority/recovery
+checks and scheduled ordinary-user loopback SSH collection. Synthetic capacity
+results establish boundedness and fairness, not a production fleet sizing guarantee.

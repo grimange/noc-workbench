@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"noc-workbench/internal/collection"
 	linux "noc-workbench/internal/collectors/linux"
 	"noc-workbench/internal/connections"
+	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/store/postgres"
 	"noc-workbench/internal/web"
 )
@@ -24,6 +26,8 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	ctx, shutdown := context.WithCancel(ctx)
+	defer shutdown()
 	startup, cancel := context.WithTimeout(ctx, cfg.StartupTimeout)
 	defer cancel()
 	db, err := postgres.Open(startup, cfg.DatabaseURL)
@@ -31,6 +35,12 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		return errors.New("local database startup failed")
 	}
 	defer db.Close()
+	var ownerLost atomic.Bool
+	release, err := db.OwnApplication(ctx, func() { ownerLost.Store(true); shutdown() })
+	if err != nil {
+		return err
+	}
+	defer release()
 	if err := startup.Err(); err != nil {
 		return errors.New("application startup cancelled")
 	}
@@ -56,12 +66,31 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if cfg.CollectionSampleDays > 0 {
 		discovery.SampleDays = cfg.CollectionSampleDays
 	}
+	scheduling := scheduler.New(db, discovery)
+	schedulerDone := make(chan error, 1)
+	var schedulerFailed atomic.Bool
+	go func() {
+		err := scheduling.Run(ctx)
+		if err != nil {
+			schedulerFailed.Store(true)
+			shutdown()
+		}
+		schedulerDone <- err
+	}()
+	defer func() { shutdown(); <-schedulerDone }()
 	handler := web.New(db, web.Options{
-		Enrollment: enrollment, Discovery: discovery, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
+		Enrollment: enrollment, Discovery: discovery, Scheduler: scheduling, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,
 	})
 	logger.Info("application started", "listen", cfg.Listen)
-	return serve(ctx, listener, handler, logger)
+	err = serve(ctx, listener, handler, logger)
+	if ownerLost.Load() {
+		return errors.New("application execution ownership lost; restart required for safe recovery")
+	}
+	if schedulerFailed.Load() {
+		return errors.New("scheduler recovery failed; restart required")
+	}
+	return err
 }
 
 func serve(ctx context.Context, listener net.Listener, handler http.Handler, logger *slog.Logger) error {

@@ -69,6 +69,23 @@ func TestIntegrationWorkspaceHTTP(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `rel="noopener noreferrer"`) || !strings.Contains(w.Body.String(), "Synthetic RTM &lt;test&gt;") {
 		t.Fatal("external link", w.Body.String())
 	}
+	ids = regexp.MustCompile(`name="id" value="([a-f0-9-]{36})"`).FindAllStringSubmatch(w.Body.String(), -1)
+	if len(ids) != 2 {
+		t.Fatal("note and link identities", len(ids))
+	}
+	lid := ids[1][1]
+	linkChange := url.Values{"operation": {"link.save"}, "id": {lid}, "label": {"Synthetic RTM <test>"}, "url": {"https://rtm.example.invalid/"}, "type": {"rtm"}, "disabled": {"on"}}
+	post(cq, linkChange, 303)
+	w = request(h, "GET", cq, nil, cookie)
+	if strings.Contains(w.Body.String(), `href="https://rtm.example.invalid/"`) || !strings.Contains(w.Body.String(), "· disabled") {
+		t.Fatal("disabled link remains navigable")
+	}
+	linkChange.Del("disabled")
+	post(cq, linkChange, 303)
+	w = request(h, "GET", cq, nil, cookie)
+	if !strings.Contains(w.Body.String(), `href="https://rtm.example.invalid/"`) {
+		t.Fatal("re-enabled link unavailable")
+	}
 	post(aq, url.Values{"operation": {"command.copy"}}, 403)
 	post(eq, url.Values{"operation": {"command.copy"}}, 200)
 	w = request(h, "POST", eq, url.Values{"csrf": {csrf}, "operation": {"command.copy"}}, cookie)

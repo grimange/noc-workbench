@@ -101,3 +101,21 @@ the existing policy vocabulary; no health thresholds or alert rules are seeded.
 Capability eligibility is established from successful persisted results for the
 current profile revision before scheduling. History and chart queries retain their
 existing ownership, retention and resource bounds.
+
+NW-015 migration `012_vicidial_context.sql` adds optional adapter-owned
+`vicidial_integration` metadata. An installation's stable ID and canonical
+customer/environment/cluster references persist across append-only revisions.
+Composite foreign keys enforce scope; a cluster-row lock serializes revision
+creation and prevents concurrent duplicate registration. SQL constraints and a
+trigger enforce revision chaining, immutable updates, bounded text, actor
+provenance and version-source/verification consistency. Registration defaults to
+disabled. Enabled revisions require active parents; disabling is allowed after
+archival. At most 4096 metadata revisions are accepted for an installation.
+
+Documented node roles remain in `cluster_membership.role`; service and
+service-instance host bindings remain canonical. Approved operational URLs stay
+in `external_link`, which gains `enabled NOT NULL DEFAULT true` to preserve
+existing links and support explicit withdrawal. VICIdial context has no new
+telemetry, credential, scheduling or alert tables and never grants execution
+authority. Existing observation/evaluation/alert repositories supply read-only
+context; unknown or stale evidence retains its original interpretation.

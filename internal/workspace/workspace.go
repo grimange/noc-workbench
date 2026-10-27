@@ -97,6 +97,7 @@ type Note struct{ ID, PrincipalID, Body, Visibility, UpdatedAt string }
 type Link struct {
 	ID, Label, URL, Type, UpdatedAt string
 	Pinned                          bool
+	Enabled                         bool
 }
 
 func ValidateNote(body, visibility string) (string, error) {
@@ -150,4 +151,5 @@ func SSHCommand(e inventory.Endpoint) (string, error) {
 type Change struct {
 	Operation, ID, Body, Visibility, Label, URL, Type string
 	Pinned                                            bool
+	Disabled                                          bool
 }

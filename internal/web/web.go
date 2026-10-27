@@ -54,6 +54,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	VICIdial                                                   vicidialData
 	Monitoring                                                 monitoringData
 	Evaluation                                                 evaluationData
 	Scheduling                                                 schedulingData
@@ -78,6 +79,8 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), streams: make(chan struct{}, 32), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial", s.vicidialContext)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial", s.vicidialContext)
 	mux.HandleFunc("GET /monitoring", s.monitoringOverview)
 	mux.HandleFunc("GET /alerts", s.monitoringOverview)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/monitoring", s.assetMonitoring)

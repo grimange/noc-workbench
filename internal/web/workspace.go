@@ -88,7 +88,7 @@ func (s *Server) operatorWorkspace(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if r.Method == http.MethodPost {
-				c := workspace.Change{Operation: r.PostForm.Get("operation"), ID: r.PostForm.Get("id"), Body: r.PostForm.Get("body"), Visibility: r.PostForm.Get("visibility"), Label: r.PostForm.Get("label"), URL: r.PostForm.Get("url"), Type: r.PostForm.Get("type"), Pinned: r.PostForm.Get("pinned") == "on"}
+				c := workspace.Change{Operation: r.PostForm.Get("operation"), ID: r.PostForm.Get("id"), Body: r.PostForm.Get("body"), Visibility: r.PostForm.Get("visibility"), Label: r.PostForm.Get("label"), URL: r.PostForm.Get("url"), Type: r.PostForm.Get("type"), Pinned: r.PostForm.Get("pinned") == "on", Disabled: r.PostForm.Get("disabled") == "on"}
 				if c.Operation == "command.copy" && !d.Workspace.CanCommand {
 					err = workspace.ErrDenied
 				}

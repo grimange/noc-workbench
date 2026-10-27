@@ -377,3 +377,31 @@ and capability flags use integer 0/1 counts. Version/module facts have canonical
 policies, not polling guarantees. Service health remains Unknown. No Asterisk alert
 thresholds or call-center conclusions are enabled; existing explicitly configured
 Linux resource alerts remain available.
+
+### Optional VICIdial cluster context (NW-015)
+
+Open **VICIdial cluster context** from a cluster's inventory detail page to
+register an optional installation. Registration defaults to disabled. Explicitly
+enable its presentation, and record a known version with its source and optional
+UTC verification time, or leave version information Unknown. Updates preserve
+immutable metadata revisions and reject stale concurrent edits. Disabling keeps
+the installation's metadata and generic inventory intact.
+
+Document dialer, web/application, database or combined roles on the existing
+cluster memberships. Assets may participate in multiple clusters, and service
+instances retain their existing host bindings. VICIdial context does not create
+another asset, role, link or metrics system. Manage RTM and administration links
+in the cluster's existing Quick Access: approve, edit, disable or remove HTTP(S)
+browser destinations without credentials, query parameters or fragments.
+Existing links remain enabled after upgrade.
+
+The enabled context previews up to 20 participating assets and 40 retained
+readings per asset, with links to complete bounded inventory/evaluation/history
+pages. Linux observations, currently authorized optional Asterisk observations
+and unresolved alerts come from the existing evidence pipeline. Each reading
+retains its source, quality, freshness and policy revision. Missing observations
+are Unknown; channel counts are not customer call counts; generic host facts do
+not establish VICIdial campaign or dialer health. No VICIdial API/database
+integration, RTM scraping, automatic login, remote discovery or collection is
+performed by registration or page viewing. Linux and Asterisk monitoring remain
+independent, with their existing explicit authorization and scheduling controls.

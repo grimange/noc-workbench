@@ -322,6 +322,7 @@ func TestIntegrationNW010Upgrade(t *testing.T) { testUpgrade(t, "008", 7) }
 func TestIntegrationNW011Upgrade(t *testing.T) { testUpgrade(t, "009", 8) }
 func TestIntegrationNW012Upgrade(t *testing.T) { testUpgrade(t, "010", 9) }
 func TestIntegrationNW013Upgrade(t *testing.T) { testUpgrade(t, "011", 10) }
+func TestIntegrationNW014Upgrade(t *testing.T) { testUpgrade(t, "012", 11) }
 func testUpgrade(t *testing.T, before string, priorCount int) {
 	ctx := context.Background()
 	dsn := isolatedDSN(t)
@@ -367,6 +368,17 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	// NW-014 links predate the enable/disable flag; upgrade must retain them enabled.
+	var oldLink string
+	if before == "012" {
+		var target string
+		if e = pool.QueryRow(ctx, `INSERT INTO workspace_target(kind,customer_id) VALUES('customers',$1) RETURNING id::text`, c.ID).Scan(&target); e != nil {
+			t.Fatal(e)
+		}
+		if e = pool.QueryRow(ctx, `INSERT INTO external_link(target_id,principal_id,label,url,type) VALUES($1,$2,'Synthetic existing link','https://example.invalid/rtm','rtm') RETURNING id::text`, target, workspace.OperatorID).Scan(&oldLink); e != nil {
+			t.Fatal(e)
+		}
+	}
 	upgraded, e := Open(ctx, dsn)
 	if e != nil {
 		t.Fatal(e)
@@ -376,8 +388,14 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 11 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 12 {
 		t.Fatal("upgrade history", e, count)
+	}
+	if oldLink != "" {
+		var enabled bool
+		if e = pool.QueryRow(ctx, `SELECT enabled FROM external_link WHERE id=$1`, oldLink).Scan(&enabled); e != nil || !enabled {
+			t.Fatal("upgrade disabled or lost existing Quick Access", e)
+		}
 	}
 	var name string
 	if e = pool.QueryRow(ctx, `SELECT display_name FROM customer WHERE id=$1`, c.ID).Scan(&name); e != nil || name != "Synthetic upgrade" {

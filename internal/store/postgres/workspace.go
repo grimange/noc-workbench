@@ -98,7 +98,7 @@ func (s *Store) WorkspaceLinks(ctx context.Context, scope workspace.Scope, p wor
 	if _, e := s.WorkspaceTarget(ctx, scope, t.Kind, t.ID); e != nil {
 		return nil, e
 	}
-	rows, e := s.pool.Query(ctx, `SELECT l.id::text,l.label,l.url,l.type,to_char(l.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS "UTC"'),l.pinned FROM external_link l JOIN workspace_target t ON t.id=l.target_id WHERE t.kind=$1 AND t.resource_id=$2 ORDER BY l.pinned DESC,lower(l.label),l.id LIMIT 100`, t.Kind, t.ID)
+	rows, e := s.pool.Query(ctx, `SELECT l.id::text,l.label,l.url,l.type,to_char(l.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS "UTC"'),l.pinned,l.enabled FROM external_link l JOIN workspace_target t ON t.id=l.target_id WHERE t.kind=$1 AND t.resource_id=$2 ORDER BY l.pinned DESC,lower(l.label),l.id LIMIT 100`, t.Kind, t.ID)
 	if e != nil {
 		return nil, topologyError(e)
 	}
@@ -106,7 +106,7 @@ func (s *Store) WorkspaceLinks(ctx context.Context, scope workspace.Scope, p wor
 	var items []workspace.Link
 	for rows.Next() {
 		var l workspace.Link
-		if e = rows.Scan(&l.ID, &l.Label, &l.URL, &l.Type, &l.UpdatedAt, &l.Pinned); e != nil {
+		if e = rows.Scan(&l.ID, &l.Label, &l.URL, &l.Type, &l.UpdatedAt, &l.Pinned, &l.Enabled); e != nil {
 			return nil, topologyError(e)
 		}
 		items = append(items, l)
@@ -205,9 +205,9 @@ func (s *Store) WorkspaceChange(ctx context.Context, scope workspace.Scope, p wo
 			return err
 		}
 		if c.ID == "" {
-			exec(`INSERT INTO external_link(target_id,principal_id,label,url,type,pinned) VALUES($1,$2,$3,$4,$5,$6)`, ref, p.ID, c.Label, c.URL, c.Type, c.Pinned)
+			exec(`INSERT INTO external_link(target_id,principal_id,label,url,type,pinned,enabled) VALUES($1,$2,$3,$4,$5,$6,$7)`, ref, p.ID, c.Label, c.URL, c.Type, c.Pinned, !c.Disabled)
 		} else {
-			exec(`UPDATE external_link SET label=$4,url=$5,type=$6,pinned=$7,updated_at=clock_timestamp() WHERE target_id=$1 AND principal_id=$2 AND id=$3`, ref, p.ID, c.ID, c.Label, c.URL, c.Type, c.Pinned)
+			exec(`UPDATE external_link SET label=$4,url=$5,type=$6,pinned=$7,enabled=$8,updated_at=clock_timestamp() WHERE target_id=$1 AND principal_id=$2 AND id=$3`, ref, p.ID, c.ID, c.Label, c.URL, c.Type, c.Pinned, !c.Disabled)
 		}
 	case "link.remove":
 		exec(`DELETE FROM external_link WHERE target_id=$1 AND principal_id=$2 AND id=$3`, ref, p.ID, c.ID)

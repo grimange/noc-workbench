@@ -14,9 +14,11 @@ import (
 	linux "noc-workbench/internal/collectors/linux"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/integrations/asterisk"
+	"noc-workbench/internal/integrations/vicidialapi"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/store/postgres"
 	"noc-workbench/internal/web"
+	"noc-workbench/internal/workspace"
 )
 
 // Run opens the local database, applies migrations and serves until cancellation.
@@ -68,7 +70,8 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if cfg.CollectionSampleDays > 0 {
 		discovery.SampleDays = cfg.CollectionSampleDays
 	}
-	scheduling := scheduler.New(db, discovery)
+	api := vicidialapi.NewService(db, discovery, cfg.APIcredentialCatalog)
+	scheduling := scheduler.New(db, apiRunner{Service: discovery, api: api})
 	schedulerDone := make(chan error, 1)
 	var schedulerFailed atomic.Bool
 	go func() {
@@ -84,7 +87,7 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	go func() { defer close(alertsDone); alerts.Run(ctx, db) }()
 	defer func() { shutdown(); <-alertsDone }()
 	handler := web.New(db, web.Options{
-		Enrollment: enrollment, Discovery: discovery, Scheduler: scheduling, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
+		Enrollment: enrollment, Discovery: discovery, Scheduler: scheduling, VICIdialAPI: api, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,
 	})
 	logger.Info("application started", "listen", cfg.Listen)
@@ -101,7 +104,7 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 func serve(ctx context.Context, listener net.Listener, handler http.Handler, logger *slog.Logger) error {
 	server := &http.Server{
 		Handler: handler, ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second,
+		ReadTimeout: 10 * time.Second, WriteTimeout: 25 * time.Second,
 		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
@@ -124,4 +127,15 @@ func serve(ctx context.Context, listener net.Listener, handler http.Handler, log
 		logger.Info("application stopped")
 		return nil
 	}
+}
+
+// apiRunner extends dispatch only; capacity, stop and asset collection remain
+// owned by the same accepted collection service.
+type apiRunner struct {
+	*collection.Service
+	api *vicidialapi.Service
+}
+
+func (r apiRunner) CollectSource(ctx context.Context, p workspace.Principal, profile scheduler.Profile) (collection.Run, error) {
+	return r.api.CollectSource(ctx, p, profile)
 }

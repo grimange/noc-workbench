@@ -21,6 +21,7 @@ const ProfileLimit = 1000
 var ErrInvalid = errors.New("Invalid or changed schedule configuration; review verified enrollment and explicit scheduling authorization.")
 
 type Profile struct {
+	CollectionSource                                               collection.Source
 	Clusters                                                       []string
 	ID, CustomerID, EnvironmentID, AssetID, ClusterID, PrincipalID string
 	Target                                                         sshcli.Target
@@ -62,6 +63,12 @@ func Validate(p Profile) error {
 		return ErrInvalid
 	}
 	known := map[string]bool{"linux.identity": true, "linux.uptime": true, "linux.load": true, "linux.memory": true, "linux.filesystems": true, "asterisk.identity": true, "asterisk.channels": true, "asterisk.modules": true, "asterisk.pjsip": true}
+	if p.CollectionSource.ID != "" {
+		known = map[string]bool{"vicidial.api.version": true, "vicidial.api.campaigns": true, "vicidial.api.agents": true}
+		if len(p.Collectors) != 3 {
+			return ErrInvalid
+		}
+	}
 	for _, id := range p.Collectors {
 		if !known[id] {
 			return ErrInvalid
@@ -95,14 +102,25 @@ func Retryable(r collection.Run) bool {
 	if r.State != "failed" || len(r.Results) == 0 {
 		return false
 	}
+	attempted := false
 	for _, c := range r.Results {
 		switch c.TransportOutcome {
+		case "not_attempted":
+			if r.CollectionSource.ID == "" || len(c.Diagnostics) != 1 || c.Diagnostics[0].Code != "dependency_unavailable" {
+				return false
+			}
+			continue
 		case "connection_refused", "connection_timeout", "dns_failure", "network_unreachable":
+		case "transport_failed", "timeout", "request_timeout", "temporarily_unavailable":
+			if r.CollectionSource.ID == "" {
+				return false
+			}
 		default:
 			return false
 		}
+		attempted = true
 	}
-	return true
+	return attempted
 }
 
 type Status struct {
@@ -217,7 +235,7 @@ func (s *Service) Step(ctx context.Context, now time.Time) error {
 	s.queue = nil
 	due := []Profile{}
 	for _, p := range eligible {
-		if s.active[p.AssetID].cancel == nil && !now.Before(p.NextDue) {
+		if s.active[resourceKey(p)].cancel == nil && !now.Before(p.NextDue) {
 			due = append(due, p)
 		}
 	}
@@ -255,18 +273,32 @@ func (s *Service) Step(ctx context.Context, now time.Time) error {
 		p := s.queue[ix]
 		s.queue = append(s.queue[:ix], s.queue[ix+1:]...)
 		jobCtx, cancel := context.WithCancel(ctx)
-		s.active[p.AssetID] = activeJob{cancel: cancel, profile: p}
+		s.active[resourceKey(p)] = activeJob{cancel: cancel, profile: p}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			defer cancel()
 			req := collection.Request{Source: "scheduled", ScheduleID: p.ID, Revision: p.Revision, Collectors: append([]string(nil), p.Collectors...), Budget: time.Duration(p.Budget) * time.Second, CustomerID: p.CustomerID, ClusterID: p.ClusterID}
-			run, err := s.runner.Collect(collection.WithRequest(jobCtx, req), workspace.Principal{ID: p.PrincipalID}, p.Target)
+			var run collection.Run
+			var err error
+			execution := collection.WithRequest(jobCtx, req)
+			if p.CollectionSource.ID != "" {
+				x, ok := s.runner.(interface {
+					CollectSource(context.Context, workspace.Principal, Profile) (collection.Run, error)
+				})
+				if ok {
+					run, err = x.CollectSource(execution, workspace.Principal{ID: p.PrincipalID}, p)
+				} else {
+					err = ErrInvalid
+				}
+			} else {
+				run, err = s.runner.Collect(execution, workspace.Principal{ID: p.PrincipalID}, p.Target)
+			}
 			save, done := context.WithTimeout(context.WithoutCancel(jobCtx), 2*time.Second)
 			finishErr := s.repo.CompleteSchedule(save, p, run, err, time.Now().UTC())
 			done()
 			s.mu.Lock()
-			delete(s.active, p.AssetID)
+			delete(s.active, resourceKey(p))
 			if finishErr != nil {
 				s.failure = "schedule_write_failed"
 			}
@@ -344,4 +376,11 @@ func (s *Service) scopeAvailable(p Profile) bool {
 		}
 	}
 	return true
+}
+
+func resourceKey(p Profile) string {
+	if p.CollectionSource.ID != "" {
+		return "source:" + p.CollectionSource.ID
+	}
+	return p.AssetID
 }

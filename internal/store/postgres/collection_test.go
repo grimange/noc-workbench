@@ -322,6 +322,7 @@ func TestIntegrationNW010Upgrade(t *testing.T) { testUpgrade(t, "008", 7) }
 func TestIntegrationNW011Upgrade(t *testing.T) { testUpgrade(t, "009", 8) }
 func TestIntegrationNW012Upgrade(t *testing.T) { testUpgrade(t, "010", 9) }
 func TestIntegrationNW013Upgrade(t *testing.T) { testUpgrade(t, "011", 10) }
+func TestIntegrationNW016Upgrade(t *testing.T) { testUpgrade(t, "013", 12) }
 func TestIntegrationNW014Upgrade(t *testing.T) { testUpgrade(t, "012", 11) }
 func testUpgrade(t *testing.T, before string, priorCount int) {
 	ctx := context.Background()
@@ -388,7 +389,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 12 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 13 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {

@@ -266,3 +266,30 @@ func TestPauseStopRevisionDatabaseAndCancellation(t *testing.T) {
 	default:
 	}
 }
+
+func TestAPIRetryRequiresActualTransientAndSafeDependencies(t *testing.T) {
+	transient := collection.Result{TransportOutcome: "transport_failed"}
+	dependency := collection.Result{TransportOutcome: "not_attempted", Diagnostics: []collection.Diagnostic{{Code: "dependency_unavailable"}}}
+	for _, tc := range []struct {
+		name    string
+		source  bool
+		results []collection.Result
+		want    bool
+	}{
+		{"transient dependency", true, []collection.Result{transient, dependency, dependency}, true},
+		{"dependencies only", true, []collection.Result{dependency}, false},
+		{"auth or parse", true, []collection.Result{transient, {TransportOutcome: "success", Diagnostics: []collection.Diagnostic{{Code: "authentication_failed"}}}}, false},
+		{"unknown dependency", true, []collection.Result{transient, {TransportOutcome: "not_attempted"}}, false},
+		{"SSH dependency", false, []collection.Result{transient, dependency}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := collection.Run{State: "failed", Results: tc.results}
+			if tc.source {
+				r.CollectionSource.ID = "synthetic"
+			}
+			if Retryable(r) != tc.want {
+				t.Fatal("retry classification")
+			}
+		})
+	}
+}

@@ -80,8 +80,12 @@ func (s *Store) Schedules(ctx context.Context, actor workspace.Principal) (sched
 		}
 		out.Profiles = append(out.Profiles, p)
 	}
+	rows.Close()
 	if rows.Err() != nil || len(out.Profiles) > scheduler.ProfileLimit {
 		return scheduler.Snapshot{}, ErrUnavailable
+	}
+	if e := s.appendSourceSchedules(ctx, &out); e != nil {
+		return out, e
 	}
 	pr, e := s.pool.Query(ctx, `SELECT kind,coalesce(customer_id,cluster_id,asset_id)::text FROM schedule_pause ORDER BY kind,coalesce(customer_id,cluster_id,asset_id) LIMIT 3001`)
 	if e != nil {
@@ -104,6 +108,9 @@ func (s *Store) Schedules(ctx context.Context, actor workspace.Principal) (sched
 func (s *Store) SaveSchedule(ctx context.Context, actor workspace.Principal, p scheduler.Profile) (scheduler.Profile, error) {
 	if e := scheduleAccess(actor); e != nil {
 		return p, e
+	}
+	if p.CollectionSource.ID != "" {
+		return s.saveSourceSchedule(ctx, actor, p)
 	}
 	if scheduler.Validate(p) != nil || !inventory.ValidID(p.CustomerID) || !inventory.ValidID(p.EnvironmentID) || !inventory.ValidID(p.AssetID) {
 		return p, scheduler.ErrInvalid
@@ -201,7 +208,7 @@ func (s *Store) SetScheduleControl(ctx context.Context, actor workspace.Principa
 	}
 	// Coalesce missed work on both pause and resume. Applicable jobs are never
 	// replayed; a resumed fleet is spread over one interval using stable hashing.
-	_, e = tx.Exec(ctx, `UPDATE collection_schedule SET next_due=$1::timestamptz+interval '1 second'*(1+mod(abs(hashtextextended(id::text,revision)::numeric),interval_seconds-1)),retry_count=0,state=CASE WHEN $2 THEN 'paused' ELSE 'idle' END WHERE $3='global' OR ($3='customer' AND customer_id::text=$4) OR ($3='asset' AND asset_id::text=$4) OR ($3='cluster' AND asset_id IN(SELECT asset_id FROM cluster_membership WHERE cluster_id::text=$4))`, now, c.Paused || c.Stopped || c.Action == "pause" || c.Action == "stop", c.Kind, c.ID)
+	_, e = tx.Exec(ctx, `UPDATE collection_schedule SET next_due=$1::timestamptz+interval '1 second'*(1+mod(abs(hashtextextended(id::text,revision)::numeric),interval_seconds-1)),retry_count=0,state=CASE WHEN $2 THEN 'paused' ELSE 'idle' END WHERE $3='global' OR ($3='customer' AND customer_id::text=$4) OR ($3='asset' AND asset_id::text=$4) OR ($3='cluster' AND (cluster_id::text=$4 OR asset_id IN(SELECT asset_id FROM cluster_membership WHERE cluster_id::text=$4)))`, now, c.Paused || c.Stopped || c.Action == "pause" || c.Action == "stop", c.Kind, c.ID)
 	if e != nil || tx.Commit(ctx) != nil {
 		return ErrUnavailable
 	}
@@ -218,7 +225,7 @@ func (s *Store) ScheduleDecision(ctx context.Context, p scheduler.Profile, state
 	if state != "queued" && state != "delayed" {
 		return scheduler.ErrInvalid
 	}
-	tag, e := s.pool.Exec(ctx, `UPDATE collection_schedule SET state=$1,admitted_at=CASE WHEN $1='queued' THEN $2 ELSE admitted_at END,lag_seconds=greatest(0,extract(epoch FROM $2-next_due)),skipped=skipped+CASE WHEN $1='delayed' AND state<>'delayed' THEN 1 ELSE 0 END WHERE id=$3 AND revision=$4 AND state<>'running' AND next_due<=$2 AND enabled AND authorized AND NOT paused AND NOT EXISTS(SELECT 1 FROM scheduler_control WHERE paused OR stopped) AND NOT EXISTS(SELECT 1 FROM schedule_pause p WHERE p.customer_id=collection_schedule.customer_id OR p.asset_id=collection_schedule.asset_id OR p.cluster_id IN(SELECT cluster_id FROM cluster_membership WHERE asset_id=collection_schedule.asset_id))`, state, now, p.ID, p.Revision)
+	tag, e := s.pool.Exec(ctx, `UPDATE collection_schedule SET state=$1,admitted_at=CASE WHEN $1='queued' THEN $2 ELSE admitted_at END,lag_seconds=greatest(0,extract(epoch FROM $2-next_due)),skipped=skipped+CASE WHEN $1='delayed' AND state<>'delayed' THEN 1 ELSE 0 END WHERE id=$3 AND revision=$4 AND state<>'running' AND next_due<=$2 AND enabled AND authorized AND NOT paused AND NOT EXISTS(SELECT 1 FROM scheduler_control WHERE paused OR stopped) AND NOT EXISTS(SELECT 1 FROM schedule_pause p WHERE p.customer_id=collection_schedule.customer_id OR p.asset_id=collection_schedule.asset_id OR p.cluster_id=collection_schedule.cluster_id OR p.cluster_id IN(SELECT cluster_id FROM cluster_membership WHERE asset_id=collection_schedule.asset_id))`, state, now, p.ID, p.Revision)
 	if e != nil {
 		return ErrUnavailable
 	}

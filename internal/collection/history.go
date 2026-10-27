@@ -10,7 +10,7 @@ import (
 
 var ErrPersistence = errors.New("Collection evidence could not be committed. No success is recorded; review history after database recovery.")
 
-type HistoryScope struct{ CustomerID, EnvironmentID, AssetID string }
+type HistoryScope struct{ CustomerID, EnvironmentID, AssetID, SourceID string }
 type Evidence struct {
 	Observation
 	ID, RunID, Freshness string

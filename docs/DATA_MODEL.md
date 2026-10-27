@@ -119,3 +119,27 @@ existing links and support explicit withdrawal. VICIdial context has no new
 telemetry, credential, scheduling or alert tables and never grants execution
 authority. Existing observation/evaluation/alert repositories supply read-only
 context; unknown or stale evidence retains its original interpretation.
+
+NW-016 migration `013_cluster_collection_sources.sql` adds vendor-neutral,
+append-only `collection_source` revisions with canonical customer/environment/
+cluster ownership and protected credential references (never secret values).
+The adapter identifier uses a bounded pattern; application dispatch accepts only
+the registered adapter. Cluster-row locking serializes source
+configuration and schedule authorization. Configuration changes withdraw old
+schedule authorization. No source or schedule is enabled by migration.
+
+Existing `collection_run`, `collector_result`, `observation` and
+`collection_schedule` support mutually exclusive asset/SSH or cluster/source
+subjects. Composite foreign keys bind source identity/revision, owner, run and
+schedule; closed collector/key/type/unit constraints limit normalized API data.
+Actual attempts are persisted before HTTP execution. Results and observations
+commit atomically through the existing history repository. There is no duplicate
+measurement, alert or scheduler store. Current evidence is limited to the selected
+source revision; older attempts retain their provenance. As-of queries exclude
+future measurements, receipts and recorded terminal results. Retention preserves
+latest series independently for each source, without inventing historical samples.
+
+Three canonical API family freshness policies extend the existing immutable
+policy contract. Source evaluation selects those policies; asset evaluation
+excludes them. API observations do not authorize asset health rules or automatic
+alerts. Existing migration checksums 001–012 remain unchanged.

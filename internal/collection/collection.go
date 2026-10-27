@@ -23,6 +23,8 @@ func Number(v float64) Value { return Value{Kind: "number", Number: v} }
 func Integer(v uint64) Value { return Value{Kind: "integer", Integer: v} }
 
 type Observation struct {
+	SourceID                                            string
+	SourceRevision                                      int64
 	SubjectType, AssetID, EndpointID, ProfileID         string
 	ProfileVersion                                      int64
 	CollectorID, CollectorVersion, CommandID, Transport string
@@ -43,6 +45,7 @@ type Result struct {
 	Diagnostics                              []Diagnostic
 }
 type Run struct {
+	CollectionSource                 Source
 	Source, ScheduleID               string
 	ScheduleRevision                 int64
 	ID, State, Category, PrincipalID string

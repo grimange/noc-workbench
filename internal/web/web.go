@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
+	"noc-workbench/internal/integrations/vicidialapi"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/security"
@@ -34,6 +35,7 @@ type Store interface {
 	SetNote(context.Context, string) error
 }
 type Options struct {
+	VICIdialAPI           *vicidialapi.Service
 	Scheduler             *scheduler.Service
 	Enrollment            *connections.Service
 	Discovery             *collection.Service
@@ -54,6 +56,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	API                                                        apiData
 	VICIdial                                                   vicidialData
 	Monitoring                                                 monitoringData
 	Evaluation                                                 evaluationData
@@ -79,6 +82,9 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), streams: make(chan struct{}, 32), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api", s.vicidialAPI)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api/events", s.vicidialAPIEvents)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api", s.vicidialAPI)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial", s.vicidialContext)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial", s.vicidialContext)
 	mux.HandleFunc("GET /monitoring", s.monitoringOverview)
@@ -166,6 +172,9 @@ func New(store Store, options Options) http.Handler {
 		}
 		if strings.HasSuffix(r.URL.Path, "/ssh") || strings.HasSuffix(r.URL.Path, "/linux") {
 			budget = 12 * time.Second
+		}
+		if strings.HasSuffix(r.URL.Path, "/vicidial/api") {
+			budget = 22 * time.Second
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), budget)
 		defer cancel()

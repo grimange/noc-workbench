@@ -268,7 +268,7 @@ func (s *Store) MaintainCollections(ctx context.Context, now time.Time, runDays,
 		return ErrUnavailable
 	}
 	defer tx.Rollback(context.Background())
-	_, e = tx.Exec(ctx, `DELETE FROM observation WHERE id IN(SELECT o.id FROM observation o WHERE observed_at<$1 AND EXISTS(SELECT 1 FROM observation n WHERE n.asset_id=o.asset_id AND n.key=o.key AND n.resource_hash=o.resource_hash AND n.resource=o.resource AND (n.observed_at,n.id)>(o.observed_at,o.id)) ORDER BY observed_at LIMIT 2000)`, now.AddDate(0, 0, -sampleDays))
+	_, e = tx.Exec(ctx, `DELETE FROM observation WHERE id IN(SELECT o.id FROM observation o WHERE observed_at<$1 AND EXISTS(SELECT 1 FROM observation n WHERE ((n.asset_id=o.asset_id AND o.source_id IS NULL) OR (n.source_id=o.source_id AND o.asset_id IS NULL)) AND n.key=o.key AND n.resource_hash=o.resource_hash AND n.resource=o.resource AND (n.observed_at,n.id)>(o.observed_at,o.id)) ORDER BY observed_at LIMIT 2000)`, now.AddDate(0, 0, -sampleDays))
 	if e != nil {
 		return ErrUnavailable
 	}

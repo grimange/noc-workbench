@@ -405,3 +405,68 @@ not establish VICIdial campaign or dialer health. No VICIdial API/database
 integration, RTM scraping, automatic login, remote discovery or collection is
 performed by registration or page viewing. Linux and Asterisk monitoring remain
 independent, with their existing explicit authorization and scheduling controls.
+
+## Optional VICIdial Non-Agent API summaries (NW-016)
+
+The VICIdial cluster context links to **VICIdial API summary**. Explicitly enable
+an administrator-provisioned credential reference, then refresh manually or
+separately authorize cluster-scoped polling. Registration and page/SSE reads never
+contact the API. API and SSH collection share five active slots, a finite queue,
+per-resource serialization, fairness, pause and persistent emergency stop. The API
+attempt budget is 20 seconds, with five-second requests and at least one second
+between its three fixed POST functions. Intervals are 60–86400 seconds; one
+eligible transient retry uses the existing scheduler. Authentication, permission,
+parser and revision failures are not retryable.
+
+Only `version`, `campaigns_list` for one approved campaign, and
+`logged_in_agents` for that campaign are registered. The initial parser contract
+is documentation/source-based **2.14-210 / build 260925-1400**, parser
+`vicidial-api.v1`. This is not a claim of compatibility with a real installed
+VICIdial revision. Exact source and endpoint logging review plus actual runtime
+acceptance are required before real credentials are authorized. API availability
+and visible agent totals never establish campaign or service health.
+
+**Credential logging boundary:** the reviewed upstream Non-Agent API source copies
+POST fields into its API URL log, including the password. POST alone does not
+prevent server-side credential disclosure. Do not authorize a real endpoint until
+its credential-redacting logging behavior has been independently reviewed. The
+catalog's review digest records an administrator approval; it cannot prove that
+an external server has been corrected. `api_url_log=0` alone does not address all
+observed logging paths. NW-016 does not modify remote VICIdial installations.
+
+Set `NOC_VICIDIAL_API_CREDENTIAL_CATALOG` to an absolute protected JSON file outside
+PostgreSQL and Git. It contains an array of entries with `ID`, `IntegrationID`
+(the collection source identity shown in the UI), `Revision`, `Enabled`,
+`Endpoint`, `ApprovedIP`, `Campaign`, `User`, `Password`, `ExpiresAt`,
+`LoggingReviewDigest`, `ContractVersion`, `ContractBuild` and `Synthetic`.
+The file must be regular, owned by root or the application user, and deny all
+group/other permissions. Protect its containing directories against replacement
+by other users. Never paste this file or real credentials into chat or logs.
+A configuration change creates a new immutable source revision and withdraws
+old polling authorization; update the catalog to match before reauthorizing.
+Rotation/revocation is checked before each request and after responses; an
+invalidated response contributes no observations.
+
+Real endpoints require verified HTTPS, the exact `/vicidial/non_agent_api.php`
+path, one approved IP and DNS answers exclusively matching that pin. Proxy use,
+redirects, URL credentials/query parameters and metadata/link-local destinations
+are rejected. Only explicitly marked disposable synthetic fixtures may use
+pinned loopback HTTP. A private-VPN plaintext exception is not implemented.
+No arbitrary API functions or browser-supplied destinations are accepted.
+
+Responses are transient and limited to 256 KiB / 1000 rows. Persisted data is
+limited to version/build, approved campaign configured/active counts, and visible
+logged-in/in-call/paused agent counts. Names, lead identifiers, caller IDs,
+sessions and raw payloads are discarded. `NO VIEWABLE CAMPAIGNS` is a permission
+failure; ambiguous `NO LOGGED IN AGENTS` is insufficient scope, not a fabricated
+zero. HTTP 200 with an application `ERROR` is a failed collector. Independent
+successful collectors and earlier valid readings survive later failure.
+
+Migration 013 extends canonical collection history, observations and schedules
+with a scoped cluster source; it does not create another telemetry store. Three
+canonical freshness policies use 86400 seconds for version/build and 180 seconds
+for campaign/visible-agent summaries. No alert or health threshold is seeded.
+Charts show exact retained samples for the selected configuration revision, up to
+1000 samples over seven days, with gaps rather than interpolation. Authenticated
+SSE only requests reconciliation from PostgreSQL. Existing asset policies and
+Linux/Asterisk monitoring remain independent.

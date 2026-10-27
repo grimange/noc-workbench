@@ -59,7 +59,7 @@ func (p Policy) Validate() error {
 }
 func SupportedSelector(s string) bool {
 	switch s {
-	case "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
+	case "vicidial.api.version", "vicidial.api.campaigns", "vicidial.api.agents", "vicidial.api.build", "vicidial.campaigns.configured_count", "vicidial.campaigns.active_count", "vicidial.agents.visible_logged_in_count", "vicidial.agents.visible_in_call_count", "vicidial.agents.visible_paused_count", "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
 		return true
 	}
 	return false
@@ -143,7 +143,7 @@ func Evaluate(in Input) (Evaluation, error) {
 	}
 	seen := map[string]bool{}
 	for _, e := range in.Evidence {
-		if e.AssetID != in.Scope.AssetID || !SupportedSelector(e.Key) || len(e.Resource) > 4096 {
+		if e.AssetID != in.Scope.AssetID || e.SourceID != in.Scope.SourceID || (e.SourceID != "" && e.AssetID != "") || !SupportedSelector(e.Key) || len(e.Resource) > 4096 {
 			return out, ErrEvidence
 		}
 		series := e.Key + "\x00" + e.Resource
@@ -228,6 +228,20 @@ func Evaluate(in Input) (Evaluation, error) {
 }
 func validValue(e collection.Evidence) bool {
 	k, v, u := e.Key, e.Value, e.Unit
+	if strings.HasPrefix(k, "vicidial.") {
+		if e.SourceID == "" || e.Resource != "" {
+			return false
+		}
+		switch k {
+		case "vicidial.api.version", "vicidial.api.build":
+			return e.CollectorID == "vicidial.api.version" && v.Kind == "text" && u == "text" && len(v.Text) > 0 && len(v.Text) <= 64
+		case "vicidial.campaigns.configured_count", "vicidial.campaigns.active_count":
+			return e.CollectorID == "vicidial.api.campaigns" && v.Kind == "integer" && u == "count" && v.Integer <= 1
+		case "vicidial.agents.visible_logged_in_count", "vicidial.agents.visible_in_call_count", "vicidial.agents.visible_paused_count":
+			return e.CollectorID == "vicidial.api.agents" && v.Kind == "integer" && u == "count" && v.Integer <= 1000
+		}
+		return false
+	}
 	if strings.HasPrefix(k, "asterisk.") {
 		if e.Resource != "" {
 			return false

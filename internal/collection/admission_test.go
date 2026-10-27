@@ -182,3 +182,71 @@ func TestSharedScopeBudgetsIncludeManualAndSecondaryClusters(t *testing.T) {
 		r()
 	}
 }
+
+// Asset collectors and cluster HTTP sources consume exactly the same capacity.
+func TestSourceAndSSHShareFiveSlotsAndEmergencyCancellation(t *testing.T) {
+	s := &Service{}
+	contexts := []context.Context{}
+	releases := []func(){}
+	for i := range 5 {
+		var ctx context.Context
+		var release func()
+		var err error
+		if i%2 == 0 {
+			ctx, release, err = s.AcquireSource(context.Background(), Source{ID: fmt.Sprint(i), CustomerID: fmt.Sprint(i), ClusterID: fmt.Sprint(i)})
+		} else {
+			ctx, release, err = s.admission.acquire(context.Background(), fmt.Sprint(i), false)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		contexts = append(contexts, ctx)
+		releases = append(releases, release)
+	}
+	if n, q := s.Capacity(); n != 5 || q != 0 {
+		t.Fatalf("capacity %d/%d", n, q)
+	}
+	if _, _, err := s.AcquireSource(context.Background(), Source{ID: "0", CustomerID: "0", ClusterID: "0"}); !errors.Is(err, ErrBusy) {
+		t.Fatal("overlapping source admitted")
+	}
+	queued := make(chan error, 1)
+	go func() {
+		_, release, err := s.AcquireSource(context.Background(), Source{ID: "waiting", CustomerID: "waiting", ClusterID: "waiting"})
+		if release != nil {
+			release()
+		}
+		queued <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		_, q := s.Capacity()
+		if q == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("queue barrier")
+		}
+		runtime.Gosched()
+	}
+	s.EmergencyStop(true)
+	for _, ctx := range contexts {
+		if ctx.Err() == nil {
+			t.Fatal("mixed in-flight work not cancelled")
+		}
+	}
+	for _, release := range releases {
+		release()
+	}
+	if err := <-queued; err == nil {
+		t.Fatal("queued source bypassed stop")
+	}
+	if n, q := s.Capacity(); n != 0 || q != 0 {
+		t.Fatalf("leak %d/%d", n, q)
+	}
+	s.EmergencyStop(false)
+	_, release, err := s.AcquireSource(context.Background(), Source{ID: "resumed", CustomerID: "resumed", ClusterID: "resumed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+}

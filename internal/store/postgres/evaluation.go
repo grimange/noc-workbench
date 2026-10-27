@@ -113,7 +113,7 @@ func evaluationEvidenceTx(ctx context.Context, tx pgx.Tx, h collection.HistorySc
 	if err != nil {
 		return in, ErrUnavailable
 	}
-	rows, e := tx.Query(ctx, `SELECT DISTINCT ON(selector) id::text,revision,version,selector,ttl_seconds,rule,threshold,enabled,created_at,actor::text,CASE WHEN asset_id IS NULL THEN 'canonical' ELSE 'asset' END FROM evaluation_policy WHERE (asset_id=$1 OR asset_id IS NULL) AND created_at<=$2 ORDER BY selector,asset_id NULLS LAST,revision DESC LIMIT 65`, h.AssetID, at)
+	rows, e := tx.Query(ctx, `SELECT DISTINCT ON(selector) id::text,revision,version,selector,ttl_seconds,rule,threshold,enabled,created_at,actor::text,CASE WHEN asset_id IS NULL THEN 'canonical' ELSE 'asset' END FROM evaluation_policy WHERE (asset_id=$1 OR asset_id IS NULL) AND selector NOT IN ('vicidial.api.version','vicidial.api.campaigns','vicidial.api.agents') AND created_at<=$2 ORDER BY selector,asset_id NULLS LAST,revision DESC LIMIT 65`, h.AssetID, at)
 	if e != nil {
 		return in, ErrUnavailable
 	}

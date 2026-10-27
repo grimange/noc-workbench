@@ -184,6 +184,26 @@ func (s *Server) monitoringEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Monitoring scope unavailable", 403)
 		return
 	}
+	s.reconcileEvents(w, r, func() ([32]byte, error) {
+		v, e := repo.AlertView(r.Context(), operatorPrincipal(), h)
+		if e != nil {
+			return [32]byte{}, e
+		}
+		er, ok := s.store.(health.Repository)
+		if !ok {
+			return [32]byte{}, health.ErrEvidence
+		}
+		in, e := er.EvaluationEvidence(r.Context(), operatorPrincipal(), h, s.now().UTC())
+		if e != nil {
+			return [32]byte{}, e
+		}
+		return monitoringFingerprint(v, in)
+	})
+}
+
+// reconcileEvents shares bounded clients, write deadlines, session revalidation
+// and notification-only delivery across asset and cluster observation sources.
+func (s *Server) reconcileEvents(w http.ResponseWriter, r *http.Request, fingerprint func() ([32]byte, error)) {
 	select {
 	case s.streams <- struct{}{}:
 		defer func() { <-s.streams }()
@@ -212,22 +232,11 @@ func (s *Server) monitoringEvents(w http.ResponseWriter, r *http.Request) {
 		if e != nil || !s.now().Before(session.ExpiresAt) {
 			return
 		}
-		v, e := repo.AlertView(r.Context(), operatorPrincipal(), h)
-		if e != nil {
-			return
-		}
-		er, ok := s.store.(health.Repository)
-		if !ok {
-			return
-		}
-		in, e := er.EvaluationEvidence(r.Context(), operatorPrincipal(), h, s.now().UTC())
-		if e != nil {
-			return
-		}
-		current, err := monitoringFingerprint(v, in)
+		current, err := fingerprint()
 		if err != nil {
 			return
 		}
+
 		if e = controller.SetWriteDeadline(time.Now().Add(3 * time.Second)); e != nil {
 			return
 		}

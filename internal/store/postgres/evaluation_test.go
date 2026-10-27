@@ -169,7 +169,7 @@ func TestIntegrationEvaluationRollbackAndUnavailable(t *testing.T) {
 	}
 	defer restored.Close()
 	in, e := restored.EvaluationEvidence(ctx, actor, h, time.Now().UTC())
-	if e != nil || len(in.Policies) != 5 {
+	if e != nil || len(in.Policies) != 9 {
 		t.Fatal("repository recovery", in, e)
 	}
 }

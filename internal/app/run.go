@@ -13,6 +13,7 @@ import (
 	"noc-workbench/internal/collection"
 	linux "noc-workbench/internal/collectors/linux"
 	"noc-workbench/internal/connections"
+	"noc-workbench/internal/integrations/asterisk"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/store/postgres"
 	"noc-workbench/internal/web"
@@ -57,7 +58,7 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if err := db.RecoverCollections(startup); err != nil {
 		return errors.New("collection recovery failed")
 	}
-	discovery := collection.NewService(enrollment, linux.Registry(), db)
+	discovery := collection.NewService(asterisk.Executor{Next: enrollment, Authority: db}, linux.Registry().Extend(asterisk.Specs()...), db)
 	if cfg.CollectionTTL > 0 {
 		discovery.TTLSeconds = cfg.CollectionTTL
 	}

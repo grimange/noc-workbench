@@ -334,3 +334,46 @@ reconnection and changes, updating charts and alert/evaluation sections. At most
 streams share bounded 65-second connections; sessions are revalidated every five
 seconds and slow writes have three-second deadlines. `X-Accel-Buffering: no`
 requests proxy streaming. No external CDN, event broker or remote command is added.
+
+### Optional Asterisk inspection (NW-014)
+
+The asset Linux Facts page offers a separate, explicit Asterisk opt-in for each
+verified SSH enrollment revision. Existing assets and Linux schedules stay
+unchanged. Enable the adapter, then select **Collect Asterisk Facts** to inspect
+version, aggregate active channels, PJSIP module availability and optional outbound
+registration totals. The compatibility baseline is Asterisk **20.20.1**, verified
+against an isolated real runtime. Parsers accept the tested 20.x output grammar;
+other major versions are explicitly unsupported. No compatibility with other
+release output variants is claimed.
+
+The four optional collectors are `asterisk.identity`, `asterisk.channels`,
+`asterisk.modules` and `asterisk.pjsip`, all version 1. They use fixed `asterisk -rx`
+inspection commands through the existing approved OpenSSH connection. There is no
+sudo fallback. The remote account must already have control-socket access and
+restricted CLI permissions. A powerful CLI account is not made read-only by the
+application allowlist; administrators must configure their own remote permissions.
+The disposable acceptance lab uses default-deny CLI permissions and disables remote
+console shell execution. The application never changes remote permissions.
+
+Active channels are **not call counts**. Only the version token and aggregate
+counts/capabilities enter observations; raw channel, registration and caller
+identifiers are discarded. Missing installation, inaccessible CLI, permission
+denial, unsupported command/version and malformed output retain distinct bounded
+diagnostics. Optional PJSIP absence never becomes a zero reading or host-down
+verdict; a supported empty registration result is an actual zero count.
+
+Manual capability collection must succeed for each selected Asterisk collector
+before enabling it in an existing scheduled profile. Schedules share the same
+five-asset capacity, per-asset serialization, pause and emergency-stop controls as
+Linux collection. Disabling the integration makes its schedules ineligible; queued
+SSH commands recheck opt-in after capacity waiting. Enrollment changes require
+fresh opt-in and capability evidence. Linux-only manual collection remains the
+default, including on hosts without Asterisk.
+
+Asterisk observations use existing durable history, monitoring charts and SSE
+reconciliation. Channels and registration totals use `count`, version uses `text`,
+and capability flags use integer 0/1 counts. Version/module facts have canonical
+86400-second freshness; channels/registrations use 180 seconds. These are freshness
+policies, not polling guarantees. Service health remains Unknown. No Asterisk alert
+thresholds or call-center conclusions are enabled; existing explicitly configured
+Linux resource alerts remain available.

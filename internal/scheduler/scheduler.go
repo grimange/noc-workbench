@@ -58,10 +58,10 @@ type Runner interface {
 }
 
 func Validate(p Profile) error {
-	if p.Interval < 60 || p.Interval > 86400 || p.Budget < 1 || p.Budget > 20 || len(p.Collectors) < 1 || len(p.Collectors) > 5 {
+	if p.Interval < 60 || p.Interval > 86400 || p.Budget < 1 || p.Budget > 20 || len(p.Collectors) < 1 || len(p.Collectors) > 9 {
 		return ErrInvalid
 	}
-	known := map[string]bool{"linux.identity": true, "linux.uptime": true, "linux.load": true, "linux.memory": true, "linux.filesystems": true}
+	known := map[string]bool{"linux.identity": true, "linux.uptime": true, "linux.load": true, "linux.memory": true, "linux.filesystems": true, "asterisk.identity": true, "asterisk.channels": true, "asterisk.modules": true, "asterisk.pjsip": true}
 	for _, id := range p.Collectors {
 		if !known[id] {
 			return ErrInvalid

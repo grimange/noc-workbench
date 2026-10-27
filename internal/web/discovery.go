@@ -1,8 +1,12 @@
 package web
 
 import (
+	"context"
 	"net/http"
+	"noc-workbench/internal/transport/sshcli"
+	"noc-workbench/internal/workspace"
 	"strconv"
+	"strings"
 
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/health"
@@ -15,11 +19,15 @@ type discoverySnapshot struct {
 	Suspended bool
 }
 type discoveryData struct {
-	Snapshots []discoverySnapshot
-	Durable   bool
-	History   collection.History
-	Withheld  bool
-	Older     bool
+	IntegrationAvailable bool
+	IntegrationEnabled   bool
+	LinuxEvidence        []collection.Evidence
+	AsteriskEvidence     []collection.Evidence
+	Snapshots            []discoverySnapshot
+	Durable              bool
+	History              collection.History
+	Withheld             bool
+	Older                bool
 }
 
 func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +64,18 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 		s.inventoryFailure(w, d, err)
 		return
 	}
+	integration, hasIntegration := s.store.(interface {
+		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
+		SetIntegration(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, string, bool) error
+	})
+	d.Discovery.IntegrationAvailable = hasIntegration
+	if hasIntegration {
+		for _, rec := range d.Enrollment.Records {
+			if integration.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk") == nil {
+				d.Discovery.IntegrationEnabled = true
+			}
+		}
+	}
 	if s.options.Scheduler != nil {
 		status, e := s.options.Scheduler.Status(r.Context(), operatorPrincipal())
 		if e != nil {
@@ -65,6 +85,9 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 		d.Scheduling.Available = true
 		d.Scheduling.Status = status
 		d.Scheduling.Collectors = []string{"linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems"}
+		if d.Discovery.IntegrationEnabled {
+			d.Scheduling.Collectors = append(d.Scheduling.Collectors, "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip")
+		}
 		for _, p := range status.Profiles {
 			if p.AssetID == d.Enrollment.Asset.ID && p.CustomerID == d.Customer.ID && p.EnvironmentID == d.Environment.ID {
 				d.Scheduling.Profile = p
@@ -84,11 +107,30 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			found = true
-			if rec.State != "connection_verified" || rec.Revision != rev {
+			if (rec.State != "connection_verified" && r.PostForm.Get("integration_action") != "disable") || rec.Revision != rev {
 				http.Error(w, "Verified enrollment changed or is unavailable. Review SSH enrollment.", 409)
 				return
 			}
-			_, err = s.options.Discovery.Collect(r.Context(), operatorPrincipal(), rec.Target())
+			action := r.PostForm.Get("integration_action")
+			if action == "enable" || action == "disable" {
+				if !hasIntegration {
+					http.Error(w, "Integration unavailable", 503)
+					return
+				}
+				err = integration.SetIntegration(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: d.Customer.ID, EnvironmentID: d.Environment.ID, AssetID: d.Enrollment.Asset.ID}, rec.Target(), "asterisk", action == "enable")
+			} else if action == "collect" {
+				if !hasIntegration || integration.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk") != nil {
+					http.Error(w, "Explicit Asterisk opt-in required for this enrollment revision", 409)
+					return
+				}
+				ids := []string{"asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip"}
+				_, err = s.options.Discovery.Collect(collection.WithRequest(r.Context(), collection.Request{Source: "operator", Collectors: ids}), operatorPrincipal(), rec.Target())
+			} else if action == "" {
+				_, err = s.options.Discovery.Collect(r.Context(), operatorPrincipal(), rec.Target())
+			} else {
+				http.Error(w, "Invalid integration action", 400)
+				return
+			}
 		}
 		if !found {
 			http.Error(w, "invalid enrollment scope", 404)
@@ -143,6 +185,13 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 			if rec.State == "identity_changed" {
 				d.Discovery.Withheld = true
 				d.Discovery.History.Latest = nil
+			}
+		}
+		for _, fact := range d.Discovery.History.Latest {
+			if strings.HasPrefix(fact.CollectorID, "asterisk.") {
+				d.Discovery.AsteriskEvidence = append(d.Discovery.AsteriskEvidence, fact)
+			} else {
+				d.Discovery.LinuxEvidence = append(d.Discovery.LinuxEvidence, fact)
 			}
 		}
 		s.render(w, "discovery.html", d)

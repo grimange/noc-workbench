@@ -93,6 +93,6 @@ func (s *Server) assetEvaluation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Action = base + "/evaluation"
-	d.Evaluation = evaluationData{Available: true, Result: result, Policies: in.Policies, At: at.UTC().Format(time.RFC3339Nano), LinuxAction: base + "/linux", Selectors: []string{"linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.mem.available_bytes", "linux.filesystem.utilization_percent"}}
+	d.Evaluation = evaluationData{Available: true, Result: result, Policies: in.Policies, At: at.UTC().Format(time.RFC3339Nano), LinuxAction: base + "/linux", Selectors: []string{"asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.mem.available_bytes", "linux.filesystem.utilization_percent"}}
 	s.render(w, "evaluation.html", d)
 }

@@ -15,6 +15,10 @@ import (
 
 const Version = "linux-evidence.v1"
 
+// MaxPolicies bounds all supported family and observation selectors, with room
+// for additive optional adapters without truncating valid configurations.
+const MaxPolicies = 64
+
 var ErrPolicy = errors.New("invalid or unsupported evaluation policy")
 var ErrEvidence = errors.New("invalid or excessive evaluation evidence")
 
@@ -55,7 +59,7 @@ func (p Policy) Validate() error {
 }
 func SupportedSelector(s string) bool {
 	switch s {
-	case "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
+	case "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
 		return true
 	}
 	return false
@@ -101,8 +105,8 @@ type Repository interface {
 // expiry evidence is stale. It never changes input, extends age on failure, or
 // infers an outage from transport or scheduling state.
 func Evaluate(in Input) (Evaluation, error) {
-	out := Evaluation{Version: Version, EvaluatedAt: in.At.UTC(), Collection: "never_attempted", Health: "unknown", Reason: "Generic Linux evidence does not establish service health", Coverage: "Retained evidence only; missing historical samples may have expired under retention"}
-	if in.At.IsZero() || len(in.Evidence) > 2048 || len(in.Policies) > 32 {
+	out := Evaluation{Version: Version, EvaluatedAt: in.At.UTC(), Collection: "never_attempted", Health: "unknown", Reason: "Infrastructure observations alone do not establish service health", Coverage: "Retained evidence only; missing historical samples may have expired under retention"}
+	if in.At.IsZero() || len(in.Evidence) > 2048 || len(in.Policies) > MaxPolicies {
 		return out, ErrEvidence
 	}
 	policies := map[string]Policy{}
@@ -224,6 +228,24 @@ func Evaluate(in Input) (Evaluation, error) {
 }
 func validValue(e collection.Evidence) bool {
 	k, v, u := e.Key, e.Value, e.Unit
+	if strings.HasPrefix(k, "asterisk.") {
+		if e.Resource != "" {
+			return false
+		}
+		switch k {
+		case "asterisk.version":
+			return e.CollectorID == "asterisk.identity" && v.Kind == "text" && u == "text" && len(v.Text) > 0 && len(v.Text) <= 128
+		case "asterisk.cli.available":
+			return e.CollectorID == "asterisk.identity" && v.Kind == "integer" && u == "count" && v.Integer == 1
+		case "asterisk.channels.active":
+			return e.CollectorID == "asterisk.channels" && v.Kind == "integer" && u == "count"
+		case "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available":
+			return e.CollectorID == "asterisk.modules" && v.Kind == "integer" && u == "count" && v.Integer <= 1
+		case "asterisk.pjsip.registrations.count":
+			return e.CollectorID == "asterisk.pjsip" && v.Kind == "integer" && u == "count" && v.Integer <= 4096
+		}
+		return false
+	}
 	family := "linux.identity"
 	switch {
 	case strings.HasPrefix(k, "linux.filesystem."):

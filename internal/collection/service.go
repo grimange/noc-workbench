@@ -10,7 +10,7 @@ import (
 	"noc-workbench/internal/workspace"
 )
 
-var ErrBusy = errors.New("Linux discovery is already running or at capacity; retry shortly")
+var ErrBusy = errors.New("Collection is already running or at capacity; retry shortly")
 
 // Service executes explicit bounded requests and commits evidence to its repository.
 // A repository-free service supports isolated parser/transport tests only.
@@ -42,7 +42,7 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 	req := Requested(ctx)
 	ids := req.Collectors
 	if len(ids) == 0 {
-		ids = s.registry.IDs()
+		ids = s.registry.Defaults()
 	}
 	// Validate before admission or durable history: unknown/duplicate IDs execute nothing.
 	seen := map[string]bool{}

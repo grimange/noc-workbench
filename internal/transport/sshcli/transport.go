@@ -99,6 +99,10 @@ var registry = map[string]command{
 	"linux.load.v1":        {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/loadavg ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/loadavg ]; then exit 126; else cat /proc/loadavg && { printf '\\nCPU_COUNT='; getconf _NPROCESSORS_ONLN || :; }; fi", 5 * time.Second, 64 * 1024},
 	"linux.memory.v1":      {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/meminfo ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/meminfo ]; then exit 126; else cat /proc/meminfo; fi", 5 * time.Second, 64 * 1024},
 	"linux.filesystems.v1": {"export LC_ALL=C PATH=/usr/bin:/bin; df -Pk", 5 * time.Second, 64 * 1024},
+	"asterisk.identity.v1": {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"asterisk.channels.v1": {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'core show channels count' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"asterisk.modules.v1":  {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'module show like pjsip' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"asterisk.pjsip.v1":    {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'pjsip show registrations' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
 }
 var userPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$`)
 
@@ -239,6 +243,23 @@ func (e *Executor) acquire(ctx context.Context, asset string) (func(), error) {
 	}
 	return func() { <-e.global; <-h.token; drop() }, nil
 }
+
+// WithExecutionCheck adds an application-owned authorization check at the
+// post-capacity boundary. It supplements, and cannot replace, SSH approval.
+type executionCheckKey struct{}
+
+func WithExecutionCheck(ctx context.Context, check func(context.Context) error) context.Context {
+	previous, _ := ctx.Value(executionCheckKey{}).(func(context.Context) error)
+	return context.WithValue(ctx, executionCheckKey{}, func(c context.Context) error {
+		if previous != nil {
+			if err := previous(c); err != nil {
+				return err
+			}
+		}
+		return check(c)
+	})
+}
+
 func (e *Executor) Execute(ctx context.Context, actor workspace.Principal, t Target, commandID string) (r Result, err error) {
 	r = Result{AssetID: t.AssetID, EndpointID: t.EndpointID, ProfileID: t.ProfileID, ProfileVersion: t.ProfileVersion, ActorID: actor.ID, CommandID: commandID, StartedAt: time.Now().UTC(), ExitCode: -1}
 	defer func() {
@@ -268,6 +289,11 @@ func (e *Executor) Execute(ctx context.Context, actor workspace.Principal, t Tar
 		return r, contextFailure(ctx)
 	}
 	defer release()
+	if check, ok := ctx.Value(executionCheckKey{}).(func(context.Context) error); ok {
+		if check(ctx) != nil {
+			return r, fail(PermissionDenied)
+		}
+	}
 	p, er := e.approval.Approve(ctx, actor, t, ProfileUse)
 	if er != nil {
 		if ctx.Err() != nil {

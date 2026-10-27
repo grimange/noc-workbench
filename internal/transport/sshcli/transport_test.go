@@ -300,3 +300,33 @@ func TestCancellationDuringAuthorizationAndDNS(t *testing.T) {
 		})
 	}
 }
+
+func TestExecutionCheckAfterCapacity(t *testing.T) {
+	p, e := fixture(t)
+	e.executable = "/must-not-start"
+	release, err := e.acquire(context.Background(), p.Target.AssetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var allowed atomic.Bool
+	allowed.Store(true)
+	called := make(chan struct{}, 1)
+	ctx := WithExecutionCheck(context.Background(), func(context.Context) error {
+		called <- struct{}{}
+		if !allowed.Load() {
+			return workspace.ErrDenied
+		}
+		return nil
+	})
+	done := make(chan error, 1)
+	go func() { _, err := e.Execute(ctx, actor, p.Target, "asterisk.identity.v1"); done <- err }()
+	// The authority is revoked while capacity is held; no child may start.
+	allowed.Store(false)
+	release()
+	category(t, <-done, PermissionDenied)
+	select {
+	case <-called:
+	default:
+		t.Fatal("post-capacity check missing")
+	}
+}

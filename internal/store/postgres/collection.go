@@ -69,8 +69,14 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 		scheduleID = profile.ID
 		scheduleRevision = profile.Revision
 		ids = profile.Collectors
-	} else if req.Source != "operator" || len(req.Collectors) > 0 {
+	} else if req.Source != "operator" {
 		return collection.Run{}, workspace.ErrDenied
+	}
+	if req.Source == "operator" && len(req.Collectors) > 0 {
+		ids = req.Collectors
+	}
+	if e = collectorsAllowed(ctx, tx, p, t, ids); e != nil {
+		return collection.Run{}, e
 	}
 	out, e := scanRun(tx.QueryRow(ctx, `INSERT INTO collection_run(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,endpoint_revision,principal_id,request_source,schedule_id,schedule_revision,collector_ids) SELECT customer_id,environment_id,asset_id,endpoint_id,id,revision,$1,$2,$5,$6,$7,$8 FROM connection_profile WHERE id=$3 AND revision=$4 AND state='connection_verified' AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=$3) RETURNING `+runColumns, r.Details.EndpointUpdatedAt, p.ID, r.ID, r.Revision, req.Source, scheduleID, scheduleRevision, ids))
 	if e == nil && req.Source == "scheduled" {
@@ -85,7 +91,7 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 var safeDiagnostic = regexp.MustCompile(`^[a-z_]{1,80}$`)
 
 func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r collection.Run, ttl int) error {
-	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 5) || ttl < 1 || ttl > 86400 {
+	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 9) || ttl < 1 || ttl > 86400 {
 		return collection.ErrPersistence
 	}
 	r.Summarize()

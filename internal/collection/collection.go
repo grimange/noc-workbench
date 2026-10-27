@@ -56,6 +56,7 @@ type Parser func([]byte) ([]Observation, []Diagnostic)
 type Spec struct {
 	ID, Version, CommandID string
 	Parse                  Parser
+	Optional               bool
 }
 type Registry struct{ specs []Spec }
 
@@ -75,6 +76,24 @@ func (r *Registry) IDs() []string {
 	ids := make([]string, 0, len(r.specs))
 	for _, s := range r.specs {
 		ids = append(ids, s.ID)
+	}
+	return ids
+}
+
+// Extend composes optional adapters without altering the default Linux request.
+func (r *Registry) Extend(specs ...Spec) *Registry {
+	out, err := NewRegistry(append(append([]Spec(nil), r.specs...), specs...))
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+func (r *Registry) Defaults() []string {
+	var ids []string
+	for _, s := range r.specs {
+		if !s.Optional {
+			ids = append(ids, s.ID)
+		}
 	}
 	return ids
 }

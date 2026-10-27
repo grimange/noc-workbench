@@ -19,3 +19,14 @@ A returning old key requires explicit review, independent fingerprint approval a
 verification. No network reconciliation or automatic retry occurs. This conservative
 recovery can require reapproval after any interrupted SSH operation. Multiple active
 application processes sharing SSH execution are outside the current M2 architecture.
+
+NW-014 optional Asterisk commands are fixed inspections: `core show version`,
+`core show channels count`, `module show like pjsip`, and `pjsip show registrations`.
+Each runs through the existing transport with a five-second/64-KiB bound and a
+fixed locale/PATH. Version framing permits parser-owned capability diagnostics;
+command strings contain no operator interpolation. No call control, reload,
+restart, module mutation, socket permission changes or privilege escalation is
+permitted. Explicit adapter opt-in supplements enrollment and is checked again
+at the post-capacity execution boundary. A remote CLI account needs independently
+restricted privileges; application allowlisting does not limit that account's
+capabilities outside NOC Workbench.

@@ -85,3 +85,19 @@ stored. Policy changes retain alert identity and event provenance. Observations
 remain the sole measurement store; a partial numeric history index supports
 bounded charts. Alert history maintenance removes at most 1000 expired events and
 100 old resolved instances per pass, preserving concurrently reactivated alerts.
+
+NW-014 migration `011_optional_collectors.sql` adds vendor-neutral
+`collection_integration` opt-in records, bound by a composite foreign key to the
+existing customer/environment/asset/endpoint/profile identity. Opt-in captures the
+verified profile revision, actor, update time and configuration revision. Existing
+rows are never enabled by migration. A changed enrollment revision invalidates the
+opt-in without creating a second trust authority.
+
+Existing runs, collector results and observations accommodate four optional
+Asterisk collectors alongside the five Linux collectors. Database checks preserve
+Linux contracts and validate adapter key/type/unit/resource combinations. No new
+telephony evidence table exists. Four canonical family freshness policies extend
+the existing policy vocabulary; no health thresholds or alert rules are seeded.
+Capability eligibility is established from successful persisted results for the
+current profile revision before scheduling. History and chart queries retain their
+existing ownership, retention and resource bounds.

@@ -113,7 +113,7 @@ func evaluationEvidenceTx(ctx context.Context, tx pgx.Tx, h collection.HistorySc
 	if err != nil {
 		return in, ErrUnavailable
 	}
-	rows, e := tx.Query(ctx, `SELECT DISTINCT ON(selector) id::text,revision,version,selector,ttl_seconds,rule,threshold,enabled,created_at,actor::text,CASE WHEN asset_id IS NULL THEN 'canonical' ELSE 'asset' END FROM evaluation_policy WHERE (asset_id=$1 OR asset_id IS NULL) AND created_at<=$2 ORDER BY selector,asset_id NULLS LAST,revision DESC LIMIT 33`, h.AssetID, at)
+	rows, e := tx.Query(ctx, `SELECT DISTINCT ON(selector) id::text,revision,version,selector,ttl_seconds,rule,threshold,enabled,created_at,actor::text,CASE WHEN asset_id IS NULL THEN 'canonical' ELSE 'asset' END FROM evaluation_policy WHERE (asset_id=$1 OR asset_id IS NULL) AND created_at<=$2 ORDER BY selector,asset_id NULLS LAST,revision DESC LIMIT 65`, h.AssetID, at)
 	if e != nil {
 		return in, ErrUnavailable
 	}
@@ -148,7 +148,7 @@ func evaluationEvidenceTx(ctx context.Context, tx pgx.Tx, h collection.HistorySc
 		}
 	}
 	if in.LatestAttempt != nil && !in.LatestAttempt.EndedAt.IsZero() && !in.LatestAttempt.EndedAt.After(at) {
-		rr, err := tx.Query(ctx, `SELECT collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics FROM collector_result WHERE run_id=$1 ORDER BY collector_id LIMIT 6`, in.LatestAttempt.ID)
+		rr, err := tx.Query(ctx, `SELECT collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics FROM collector_result WHERE run_id=$1 ORDER BY collector_id LIMIT 9`, in.LatestAttempt.ID)
 		if err != nil {
 			return in, ErrUnavailable
 		}

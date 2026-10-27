@@ -204,3 +204,19 @@ func TestEvidenceAuthorityRevision(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionalAdapterPolicyCatalogFitsBound(t *testing.T) {
+	in := fixture()
+	in.Policies = nil
+	selectors := []string{"linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent", "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count"}
+	for _, s := range selectors {
+		in.Policies = append(in.Policies, Policy{ID: s, Revision: 1, Version: Version, Selector: s, TTLSeconds: 180, Rule: "none", Enabled: true, CreatedAt: in.At.Add(-time.Hour)})
+	}
+	if _, e := Evaluate(in); e != nil {
+		t.Fatal("supported catalog cannot be evaluated", e)
+	}
+	in.Policies = make([]Policy, MaxPolicies+1)
+	if _, e := Evaluate(in); e != ErrEvidence {
+		t.Fatal("unbounded policy input", e)
+	}
+}

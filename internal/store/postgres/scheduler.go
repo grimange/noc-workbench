@@ -50,7 +50,7 @@ func (s *Store) Schedules(ctx context.Context, actor workspace.Principal) (sched
 	}
 	rows, e := s.pool.Query(ctx, `SELECT `+scheduleColumns+`,coalesce((SELECT min(m.cluster_id::text) FROM cluster_membership m WHERE m.asset_id=s.asset_id),''),
  (s.paused OR EXISTS(SELECT 1 FROM schedule_pause p WHERE p.customer_id=s.customer_id OR p.asset_id=s.asset_id OR p.cluster_id IN(SELECT cluster_id FROM cluster_membership WHERE asset_id=s.asset_id))),
- (c.status='active' AND e.status='active' AND a.lifecycle='active' AND ep.status='active' AND cp.state='connection_verified' AND cp.revision=s.profile_revision AND ep.updated_at=s.endpoint_revision AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=s.profile_id) AND NOT EXISTS(SELECT 1 FROM cluster_membership m JOIN cluster cl ON cl.id=m.cluster_id WHERE m.asset_id=s.asset_id AND cl.lifecycle<>'active'))
+ (c.status='active' AND e.status='active' AND a.lifecycle='active' AND ep.status='active' AND cp.state='connection_verified' AND cp.revision=s.profile_revision AND ep.updated_at=s.endpoint_revision AND (NOT EXISTS(SELECT 1 FROM unnest(s.collector_ids) cid WHERE cid LIKE 'asterisk.%') OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='asterisk' AND i.enabled AND i.profile_revision=s.profile_revision)) AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=s.profile_id) AND NOT EXISTS(SELECT 1 FROM cluster_membership m JOIN cluster cl ON cl.id=m.cluster_id WHERE m.asset_id=s.asset_id AND cl.lifecycle<>'active'))
  ,ARRAY(SELECT cluster_id::text FROM cluster_membership WHERE asset_id=s.asset_id ORDER BY cluster_id LIMIT 1001) FROM collection_schedule s JOIN customer c ON c.id=s.customer_id JOIN environment e ON e.id=s.environment_id JOIN asset a ON a.id=s.asset_id JOIN asset_endpoint ep ON ep.id=s.endpoint_id JOIN connection_profile cp ON cp.id=s.profile_id ORDER BY s.customer_id,s.asset_id LIMIT 1001`)
 	if e != nil {
 		return out, ErrUnavailable
@@ -115,6 +115,14 @@ func (s *Store) SaveSchedule(ctx context.Context, actor workspace.Principal, p s
 			return p, scheduler.ErrInvalid
 		}
 		return out, nil
+	}
+	if p.Enabled && p.Authorized {
+		if e := s.integrationCapabilities(ctx, actor, p.Target, p.Collectors); e != nil {
+			return p, e
+		}
+		if e := collectorsAllowed(ctx, s.pool, actor, p.Target, p.Collectors); e != nil {
+			return p, e
+		}
 	}
 	rec, e := s.Enrollment(ctx, p.Target.EndpointID, p.Target.ProfileID)
 	if e != nil || rec.CustomerID != p.CustomerID || rec.EnvironmentID != p.EnvironmentID || rec.AssetID != p.AssetID || rec.Target() != p.Target {

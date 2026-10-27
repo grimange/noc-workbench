@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/health"
+	"noc-workbench/internal/integrations/vicidialdiscovery"
 	"noc-workbench/internal/workspace"
 	"strconv"
 )
@@ -18,6 +19,8 @@ type serverData struct {
 	Base, Inventory   string
 	EvidenceAvailable bool
 	Result            health.Evaluation
+	Discovery         vicidialdiscovery.Result
+	CanDiscover       bool
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
@@ -80,7 +83,7 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := "/customers/" + v.CustomerID + "/environments/" + v.EnvironmentID
-	d.Server = serverData{Detail: v, Base: base + "/assets/" + v.ID, Inventory: base + "/topology/assets/" + v.ID}
+	d.Server = serverData{Discovery: vicidialdiscovery.Unknown(), CanDiscover: s.options.Discovery != nil, Detail: v, Base: base + "/assets/" + v.ID, Inventory: base + "/topology/assets/" + v.ID}
 	if s.options.Enrollment != nil {
 		d.Enrollment.Records, err = s.options.Enrollment.List(r.Context(), operatorPrincipal(), v.CustomerID, v.EnvironmentID, v.ID)
 		if err != nil {
@@ -99,6 +102,20 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Stored evidence could not be evaluated", 503)
 			return
 		}
+		for _, reading := range d.Server.Result.Readings {
+			if reading.Evidence.Key == vicidialdiscovery.Key {
+				ev := reading.Evidence
+				authorized := in.Active && in.Trusted && in.Authority[ev.ProfileID] == ev.ProfileVersion
+				d.Server.Discovery = vicidialdiscovery.Evaluate(ev, in.At, reading.Freshness, authorized)
+			}
+		}
+		filtered := d.Server.Result.Readings[:0]
+		for _, reading := range d.Server.Result.Readings {
+			if reading.Evidence.Key != vicidialdiscovery.Key {
+				filtered = append(filtered, reading)
+			}
+		}
+		d.Server.Result.Readings = filtered
 		d.Server.EvidenceAvailable = true
 	}
 	s.render(w, "server.html", d)

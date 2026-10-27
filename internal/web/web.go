@@ -116,6 +116,7 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("POST /settings", s.settings)
 	mux.HandleFunc("GET /settings", s.settingsPage)
 	mux.HandleFunc("GET /servers/{asset}", s.serverDetails)
+	mux.HandleFunc("POST /servers/{asset}/discovery", s.serverDiscovery)
 	mux.HandleFunc("GET /customers", s.customers)
 	mux.HandleFunc("GET /customers/new", s.customerForm)
 	mux.HandleFunc("POST /customers", s.customerForm)
@@ -170,16 +171,7 @@ func New(store Store, options Options) http.Handler {
 				return
 			}
 		}
-		budget := 3 * time.Second
-		if strings.HasSuffix(r.URL.Path, "/events") {
-			budget = 65 * time.Second
-		}
-		if strings.HasSuffix(r.URL.Path, "/ssh") || strings.HasSuffix(r.URL.Path, "/linux") {
-			budget = 12 * time.Second
-		}
-		if strings.HasSuffix(r.URL.Path, "/vicidial/api") {
-			budget = 22 * time.Second
-		}
+		budget := requestBudget(r.URL.Path)
 		ctx, cancel := context.WithTimeout(r.Context(), budget)
 		defer cancel()
 		mux.ServeHTTP(w, r.WithContext(ctx))
@@ -348,4 +340,18 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 // Binding the lookup digest to the credential hash revokes old sessions on password rotation.
 func (s *Server) sessionKey(token string) string {
 	return security.Hash(token + s.options.PasswordHash)
+}
+
+// requestBudget includes transport and persistence time for explicit actions.
+func requestBudget(path string) time.Duration {
+	if strings.HasSuffix(path, "/events") {
+		return 65 * time.Second
+	}
+	if strings.HasSuffix(path, "/vicidial/api") {
+		return 22 * time.Second
+	}
+	if strings.HasSuffix(path, "/ssh") || strings.HasSuffix(path, "/linux") || strings.HasSuffix(path, "/discovery") {
+		return 12 * time.Second
+	}
+	return 3 * time.Second
 }

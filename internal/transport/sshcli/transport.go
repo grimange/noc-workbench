@@ -93,16 +93,17 @@ type command struct {
 // Registry entries are source-controlled static shell text. No caller can add
 // commands or interpolate remote values. Optional sources have explicit framing.
 var registry = map[string]command{
-	"lab.probe.v1":         {"printf 'NOC_WORKBENCH_SSH_LAB_OK\\n'", 5 * time.Second, 64 * 1024},
-	"linux.identity.v1":    {"export LC_ALL=C PATH=/usr/bin:/bin; hostname && uname -r && uname -m && { if [ -r /etc/os-release ]; then cat /etc/os-release; else printf 'NW_OS_RELEASE_UNAVAILABLE\\n'; fi; }", 5 * time.Second, 64 * 1024},
-	"linux.uptime.v1":      {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/uptime ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/uptime ]; then exit 126; else cat /proc/uptime; fi", 5 * time.Second, 64 * 1024},
-	"linux.load.v1":        {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/loadavg ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/loadavg ]; then exit 126; else cat /proc/loadavg && { printf '\\nCPU_COUNT='; getconf _NPROCESSORS_ONLN || :; }; fi", 5 * time.Second, 64 * 1024},
-	"linux.memory.v1":      {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/meminfo ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/meminfo ]; then exit 126; else cat /proc/meminfo; fi", 5 * time.Second, 64 * 1024},
-	"linux.filesystems.v1": {"export LC_ALL=C PATH=/usr/bin:/bin; df -Pk", 5 * time.Second, 64 * 1024},
-	"asterisk.identity.v1": {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
-	"asterisk.channels.v1": {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'core show channels count' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
-	"asterisk.modules.v1":  {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'module show like pjsip' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
-	"asterisk.pjsip.v1":    {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'pjsip show registrations' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"vicidial.discovery.v1": {vicidialDiscoveryCommand, 5 * time.Second, 8192},
+	"lab.probe.v1":          {"printf 'NOC_WORKBENCH_SSH_LAB_OK\\n'", 5 * time.Second, 64 * 1024},
+	"linux.identity.v1":     {"export LC_ALL=C PATH=/usr/bin:/bin; hostname && uname -r && uname -m && { if [ -r /etc/os-release ]; then cat /etc/os-release; else printf 'NW_OS_RELEASE_UNAVAILABLE\\n'; fi; }", 5 * time.Second, 64 * 1024},
+	"linux.uptime.v1":       {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/uptime ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/uptime ]; then exit 126; else cat /proc/uptime; fi", 5 * time.Second, 64 * 1024},
+	"linux.load.v1":         {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/loadavg ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/loadavg ]; then exit 126; else cat /proc/loadavg && { printf '\\nCPU_COUNT='; getconf _NPROCESSORS_ONLN || :; }; fi", 5 * time.Second, 64 * 1024},
+	"linux.memory.v1":       {"export LC_ALL=C PATH=/usr/bin:/bin; if [ ! -e /proc/meminfo ]; then printf 'NW_SOURCE_UNSUPPORTED\\n'; elif [ ! -r /proc/meminfo ]; then exit 126; else cat /proc/meminfo; fi", 5 * time.Second, 64 * 1024},
+	"linux.filesystems.v1":  {"export LC_ALL=C PATH=/usr/bin:/bin; df -Pk", 5 * time.Second, 64 * 1024},
+	"asterisk.identity.v1":  {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"asterisk.channels.v1":  {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'core show channels count' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"asterisk.modules.v1":   {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'module show like pjsip' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
+	"asterisk.pjsip.v1":     {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else { asterisk -rx 'core show version' 2>&1 || :; } && printf '\\nNW_ASTERISK_DATA\\n' && { asterisk -rx 'pjsip show registrations' 2>&1 || :; }; fi", 5 * time.Second, 64 * 1024},
 }
 var userPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$`)
 

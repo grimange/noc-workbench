@@ -190,7 +190,7 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 		for _, fact := range d.Discovery.History.Latest {
 			if strings.HasPrefix(fact.CollectorID, "asterisk.") {
 				d.Discovery.AsteriskEvidence = append(d.Discovery.AsteriskEvidence, fact)
-			} else {
+			} else if strings.HasPrefix(fact.CollectorID, "linux.") {
 				d.Discovery.LinuxEvidence = append(d.Discovery.LinuxEvidence, fact)
 			}
 		}

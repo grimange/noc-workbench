@@ -157,7 +157,7 @@ func TestIntegrationInterchange(t *testing.T) {
 		t.Fatal("restart lost inventory")
 	}
 	var history int
-	if e = s.pool.QueryRow(ctx, "SELECT count(*) FROM schema_migration").Scan(&history); e != nil || history != 13 {
+	if e = s.pool.QueryRow(ctx, "SELECT count(*) FROM schema_migration").Scan(&history); e != nil || history != 14 {
 		t.Fatal("migration regression", e)
 	}
 	// Database collision found during dry-run, even when graph alone is valid.

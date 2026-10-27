@@ -317,6 +317,7 @@ func TestIntegrationCollectionWriteFailureRecovery(t *testing.T) {
 }
 
 // Apply the exact accepted NW-009 embedded scripts, then upgrade and reopen.
+func TestIntegrationNW036Upgrade(t *testing.T) { testUpgrade(t, "014", 13) }
 func TestIntegrationNW009Upgrade(t *testing.T) { testUpgrade(t, "007", 6) }
 func TestIntegrationNW010Upgrade(t *testing.T) { testUpgrade(t, "008", 7) }
 func TestIntegrationNW011Upgrade(t *testing.T) { testUpgrade(t, "009", 8) }
@@ -389,7 +390,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 13 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 14 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {

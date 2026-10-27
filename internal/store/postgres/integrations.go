@@ -17,7 +17,7 @@ func (s *Store) IntegrationAllowed(ctx context.Context, p workspace.Principal, t
 	return integrationAllowed(ctx, s.pool, p, t, name)
 }
 func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, name string) error {
-	if p.ID != workspace.OperatorID || name != "asterisk" {
+	if p.ID != workspace.OperatorID || (name != "asterisk" && name != "vicidial_discovery") {
 		return workspace.ErrDenied
 	}
 	var yes bool
@@ -28,7 +28,7 @@ func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Pri
 	return nil
 }
 func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, name string, enabled bool) error {
-	if collectionAccess(p, h) != nil || name != "asterisk" || h.AssetID != t.AssetID {
+	if collectionAccess(p, h) != nil || (name != "asterisk" && name != "vicidial_discovery") || h.AssetID != t.AssetID {
 		return workspace.ErrDenied
 	}
 	r, e := s.Enrollment(ctx, t.EndpointID, t.ProfileID)
@@ -59,7 +59,14 @@ func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h col
 func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {
 		if strings.HasPrefix(id, "asterisk.") {
-			return integrationAllowed(ctx, q, p, t, "asterisk")
+			if err := integrationAllowed(ctx, q, p, t, "asterisk"); err != nil {
+				return err
+			}
+		}
+		if id == "vicidial.discovery" {
+			if err := integrationAllowed(ctx, q, p, t, "vicidial_discovery"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -470,3 +470,38 @@ Charts show exact retained samples for the selected configuration revision, up t
 1000 samples over seven days, with gaps rather than interpolation. Authenticated
 SSE only requests reconciliation from PostgreSQL. Existing asset policies and
 Linux/Asterisk monitoring remain independent.
+
+## Optional VICIdial server discovery (NW-36 Slice A)
+
+Server Details provides **Refresh Discovery** for an authorized, verified SSH
+enrollment revision. This explicit action opts that revision into the optional
+adapter; viewing the page reads saved observations and never executes SSH.
+Installation roles are separate from runtime service health. Failed collection
+retains the previous valid observation with its original timestamp and freshness.
+
+The reviewed command extracts only approved version and non-secret configuration
+fields. The confirmation contract currently covers ViciBox 12.0.2, deployed
+VICIdial application marker 2.14-968a, and local SVN source revision 4034.
+The source revision is context, not proof that every deployed file matches SVN.
+Other revisions retain Candidate/Unknown conclusions. Inaccessible files,
+unsupported addresses and database permissions remain explicit uncertainty;
+the adapter never uses sudo or database credentials.
+
+Configured roles and deployment use the ViciBox installer's shared
+`asterisk.vicibox` registry, bound to the configured local address, database and
+port. The address must belong to the observed host. Web/Telephony require the
+corresponding installed component; Archive also requires its supported web alias.
+A single registered address with all core roles and a Primary designation can
+establish configured Standalone only without contradictory replication evidence.
+Distinct registered peer addresses support configured Cluster Member, without
+contacting or enrolling peers. Legacy/manual nodes and operational drift remain
+unverified. Database package presence alone never establishes Primary/Replica;
+confirmation additionally requires positive, agreeing replication evidence.
+
+Evidence is one minimized canonical observation with collector/evaluator versions,
+timestamp, reasons and hashed candidate peer references. No passwords, arbitrary
+registry fields, recordings, raw configuration or peer addresses are retained.
+PostgreSQL migration 014 extends existing observation constraints and freshness
+policy; it does not create inventory members, schedules or remote authority.
+Runtime service discovery/60-second monitoring and further Dashboard integration
+remain NW-36 Slices B/C.

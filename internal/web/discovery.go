@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"noc-workbench/internal/collection"
+	"noc-workbench/internal/health"
 	"noc-workbench/internal/inventory"
 )
 
@@ -105,6 +106,34 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 	if historyErr != nil {
 		s.inventoryFailure(w, d, historyErr)
 		return
+	}
+	// Freshness comes from versioned policies; the stored NW-010 envelope remains immutable.
+	if evaluationRepo, ok := s.store.(health.Repository); ok && durable {
+		input, e := evaluationRepo.EvaluationEvidence(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: d.Customer.ID, EnvironmentID: d.Environment.ID, AssetID: d.Enrollment.Asset.ID}, s.now().UTC())
+		if e != nil {
+			s.inventoryFailure(w, d, e)
+			return
+		}
+		result, e := health.Evaluate(input)
+		if e != nil {
+			http.Error(w, "Evaluation unavailable", 503)
+			return
+		}
+		d.Evaluation = evaluationData{Available: true, Result: result}
+		readings := map[string]health.Reading{}
+		for _, v := range result.Readings {
+			readings[v.Evidence.ID] = v
+		}
+		for i := range history.Latest {
+			v, ok := readings[history.Latest[i].ID]
+			if ok {
+				history.Latest[i].Freshness = v.Freshness
+				history.Latest[i].TTLSeconds = v.TTLSeconds
+				history.Latest[i].AgeSeconds = v.AgeSeconds
+			} else {
+				history.Latest[i].Freshness = "unknown"
+			}
+		}
 	}
 	d.Discovery.Older = r.URL.Query().Get("before") != ""
 	d.Discovery.Durable = durable

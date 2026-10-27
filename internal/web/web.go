@@ -53,6 +53,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Evaluation                                                 evaluationData
 	Scheduling                                                 schedulingData
 	Enrollment                                                 enrollmentData
 	Discovery                                                  discoveryData
@@ -75,6 +76,8 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/evaluation", s.assetEvaluation)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/evaluation", s.assetEvaluation)
 	mux.HandleFunc("GET /scheduler", s.schedulerPage)
 	mux.HandleFunc("POST /scheduler", s.schedulerPage)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/schedule", s.assetSchedule)

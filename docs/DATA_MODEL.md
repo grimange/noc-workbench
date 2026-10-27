@@ -53,3 +53,23 @@ reconciliation atomically clears surviving profiles' approval, advances revision
 audits recovery and deletes markers. Disabled/rejected states remain authoritative.
 Failure to reconcile prevents startup. It extends existing approval authority rather
 than establishing a second trust model.
+
+NW-012 migration `009_evaluation_policy.sql` adds immutable `evaluation_policy`
+revisions. Composite customer/environment/asset foreign keys enforce ownership;
+identity/selector/scope remain fixed across a contiguous revision chain. Only five
+canonical family defaults are seeded; health thresholds require an explicit asset
+policy. Asset-row locking serializes API revision changes. Policies are bounded to
+4096 revisions per asset. Historical lookup selects the latest applicable revision
+recorded by the evaluation timestamp, with key > family and asset > canonical
+precedence. Disabled overrides mask defaults. Policy edits cannot dispatch collection.
+
+Observation `recorded_at` and run `evidence_recorded_at` distinguish measurement time
+from database recording time. Historical queries exclude future measurements,
+receipts and terminal-result recordings, using scoped latest-series queries without
+another evidence store. These are event timestamps inside transactions, not commit
+visibility history. Existing rows conservatively become available at upgrade.
+Current lifecycle/trust context is supplied separately; historical trust is not
+inferred. Retained samples may be projected into the future to verify exact expiry.
+Evaluation is pure, bounded to 2048 series and 32 applicable policies, versioned and
+clock-free. Overall service health remains unknown; narrow configured resource
+conditions never imply application availability.

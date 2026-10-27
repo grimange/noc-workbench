@@ -196,3 +196,6 @@ input[type="checkbox"] { width: 1.25rem; min-height: 1.25rem; align-self: flex-s
 .linux-facts dd { margin: 0; }
 .collector-result { margin-top: 1.5rem; }
 @media (max-width: 600px) { .linux-facts > div { grid-template-columns: minmax(0, 1fr); gap: .35rem; } }
+
+.evidence-evaluation p, .evidence-evaluation h3 { overflow-wrap: anywhere; min-width: 0; }
+.evidence-evaluation input:not([type=checkbox]), .evidence-evaluation select { max-width: 100%; min-width: 0; }

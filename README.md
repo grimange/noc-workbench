@@ -263,3 +263,38 @@ barrier-controlled queue, cancellation and mixed-scope load cases. Authorized
 `NOC_SSH_LAB=1 ./scripts/test-m0` adds actual PostgreSQL migration/authority/recovery
 checks and scheduled ordinary-user loopback SSH collection. Synthetic capacity
 results establish boundedness and fairness, not a production fleet sizing guarantee.
+
+### Evidence evaluation (NW-012)
+
+The asset Linux Facts page links to a read-only evidence evaluation view. Collection
+outcome, observation quality, freshness and operational health are separate fields.
+Viewing or evaluating evidence never dispatches SSH. Use an explicit RFC3339 `at`
+timestamp for historical selection or a future projection of currently retained
+samples. Results include observation/run provenance and policy identity/revision.
+
+Canonical `linux-evidence.v1` policies expire static identity facts after 86400
+seconds and dynamic uptime/load/memory/filesystem facts after 180 seconds. Validity
+is half-open: evidence is stale exactly at observed time plus TTL. The original stored TTL envelope is retained for provenance; evaluation applies
+the explicitly identified policy revision, so a TTL revision may change a sample’s
+freshness without changing its timestamp. Polling intervals
+do not extend TTL; contradictory cadence is displayed. Failed attempts, pauses and
+restarts never refresh previous readings. Asset overrides take precedence over
+canonical family defaults; an observation-key override takes precedence over its
+family. Disabled overrides produce unknown freshness rather than falling through.
+
+Authenticated, CSRF-protected forms append immutable asset policy revisions with
+optimistic concurrency. Supported optional conditions are filesystem utilization
+percent at or above a configured threshold, and available memory bytes at or below
+a configured threshold. No health thresholds are enabled by default. These narrow
+resource conditions require fresh valid evidence and current verified profile
+context; generic facts always leave comprehensive host/application health unknown.
+No load-to-CPU conversion, service inference, alerts or collection commands are added.
+
+Historical selection uses observed, received, database-recorded and terminal-run
+recording timestamps; it is not a historical PostgreSQL transaction snapshot.
+Only committed rows visible to the current repeatable-read query are read. Existing
+samples conservatively acquire recording timestamps at migration 009; pre-upgrade
+availability cannot be reconstructed. Retention is not reversed or backfilled.
+Current inventory/trust context is conservative and is not reconstructed historically.
+Policies and retained evidence are sufficient to reproduce a result with the same
+explicit context and timestamp; no computed current-state table is maintained.

@@ -1,0 +1,258 @@
+// Package health interprets persisted evidence without performing I/O or reading a clock.
+package health
+
+import (
+	"context"
+	"errors"
+	"math"
+	"sort"
+	"strings"
+	"time"
+
+	"noc-workbench/internal/collection"
+	"noc-workbench/internal/workspace"
+)
+
+const Version = "linux-evidence.v1"
+
+var ErrPolicy = errors.New("invalid or unsupported evaluation policy")
+var ErrEvidence = errors.New("invalid or excessive evaluation evidence")
+
+type Policy struct {
+	ID                      string
+	Revision                int64
+	Version, Selector, Rule string
+	Scope                   string // canonical or asset override
+	TTLSeconds              int
+	// Threshold is either percent filesystem usage (high) or available bytes (low).
+	Threshold float64
+	Enabled   bool
+	CreatedAt time.Time
+	Actor     string
+}
+
+func (p Policy) Validate() error {
+	if p.Version != Version || p.Revision < 1 || p.TTLSeconds < 1 || p.TTLSeconds > 604800 || !SupportedSelector(p.Selector) || math.IsNaN(p.Threshold) || math.IsInf(p.Threshold, 0) {
+		return ErrPolicy
+	}
+	switch p.Rule {
+	case "none":
+		if p.Threshold != 0 {
+			return ErrPolicy
+		}
+	case "filesystem_used_high":
+		if p.Selector != "linux.filesystem.utilization_percent" || p.Threshold < 0 || p.Threshold > 100 {
+			return ErrPolicy
+		}
+	case "memory_available_low":
+		if p.Selector != "linux.mem.available_bytes" || p.Threshold < 0 || p.Threshold > math.Pow(2, 53) || math.Trunc(p.Threshold) != p.Threshold {
+			return ErrPolicy
+		}
+	default:
+		return ErrPolicy
+	}
+	return nil
+}
+func SupportedSelector(s string) bool {
+	switch s {
+	case "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
+		return true
+	}
+	return false
+}
+
+type Input struct {
+	Scope                      collection.HistoryScope
+	At                         time.Time
+	Active, Trusted            bool
+	LatestAttempt, LastSuccess *collection.Run
+	Evidence                   []collection.Evidence
+	Policies                   []Policy // one applicable revision per selector, selected as-of by repository
+	IntervalSeconds            int
+	Authority                  map[string]int64 // current verified profile revisions; nil for standalone supplied context
+}
+type Reading struct {
+	Evidence                           collection.Evidence
+	Quality, Freshness, Health, Reason string
+	PolicyID, PolicyVersion            string
+	PolicyRevision                     int64
+	TTLSeconds                         int
+	AgeSeconds                         int64
+	ExpiresAt                          time.Time
+	CadenceConflict                    bool
+	AgeKnown                           bool
+}
+type Evaluation struct {
+	Version                    string
+	EvaluatedAt                time.Time
+	Collection                 string
+	LatestAttempt, LastSuccess *collection.Run
+	Readings                   []Reading
+	Health                     string // generic facts never establish comprehensive host/service health
+	Reason                     string
+	Coverage                   string
+}
+type Repository interface {
+	EvaluationEvidence(context.Context, workspace.Principal, collection.HistoryScope, time.Time) (Input, error)
+	SaveEvaluationPolicy(context.Context, workspace.Principal, collection.HistoryScope, Policy) (Policy, error)
+}
+
+// Evaluate uses half-open validity [observed_at, observed_at+TTL). At exact
+// expiry evidence is stale. It never changes input, extends age on failure, or
+// infers an outage from transport or scheduling state.
+func Evaluate(in Input) (Evaluation, error) {
+	out := Evaluation{Version: Version, EvaluatedAt: in.At.UTC(), Collection: "never_attempted", Health: "unknown", Reason: "Generic Linux evidence does not establish service health", Coverage: "Retained evidence only; missing historical samples may have expired under retention"}
+	if in.At.IsZero() || len(in.Evidence) > 2048 || len(in.Policies) > 32 {
+		return out, ErrEvidence
+	}
+	policies := map[string]Policy{}
+	for _, p := range in.Policies {
+		if err := p.Validate(); err != nil {
+			return out, err
+		}
+		if _, ok := policies[p.Selector]; ok {
+			return out, ErrPolicy
+		}
+		if p.CreatedAt.IsZero() || p.CreatedAt.After(in.At) {
+			return out, ErrPolicy
+		}
+		policies[p.Selector] = p
+	}
+	if in.LatestAttempt != nil {
+		r := *in.LatestAttempt
+		if !r.StartedAt.IsZero() && !r.StartedAt.After(in.At) {
+			if r.EndedAt.IsZero() || r.EndedAt.After(in.At) {
+				r.State = "running"
+				r.Category = ""
+				r.Results = nil
+				r.SuccessCount = 0
+				r.FailureCount = 0
+				r.EndedAt = time.Time{}
+			}
+			out.Collection = r.State
+			out.LatestAttempt = &r
+		}
+	}
+	if in.LastSuccess != nil && !in.LastSuccess.EndedAt.IsZero() && !in.LastSuccess.EndedAt.After(in.At) {
+		r := *in.LastSuccess
+		out.LastSuccess = &r
+	}
+	seen := map[string]bool{}
+	for _, e := range in.Evidence {
+		if e.AssetID != in.Scope.AssetID || !SupportedSelector(e.Key) || len(e.Resource) > 4096 {
+			return out, ErrEvidence
+		}
+		series := e.Key + "\x00" + e.Resource
+		if seen[series] {
+			return out, ErrEvidence
+		}
+		seen[series] = true
+		r := Reading{Evidence: e, Quality: e.Quality, Freshness: "unknown", Health: "unknown", Reason: "No supported current health rule"}
+		p, ok := policies[e.Key]
+		if !ok {
+			p, ok = policies[e.CollectorID]
+		}
+		if ok {
+			r.PolicyID = p.ID
+			r.PolicyRevision = p.Revision
+			r.PolicyVersion = p.Version
+			r.TTLSeconds = p.TTLSeconds
+		}
+		switch e.Quality {
+		case "valid", "invalid", "partial", "unsupported", "unknown":
+		default:
+			r.Quality = "unknown"
+		}
+		usable := e.Quality == "valid" && validValue(e)
+		if e.Quality == "valid" && !usable {
+			r.Quality = "invalid"
+		}
+		if e.ObservedAt.IsZero() || e.ReceivedAt.IsZero() || e.ReceivedAt.Before(e.ObservedAt) || e.ObservedAt.After(in.At) || e.ReceivedAt.After(in.At) {
+			r.Quality = "invalid"
+			r.Reason = "Missing, future or inconsistent evidence timestamp"
+			out.Readings = append(out.Readings, r)
+			continue
+		}
+		r.AgeSeconds = int64(in.At.Sub(e.ObservedAt) / time.Second)
+		r.AgeKnown = true
+		if !ok || !p.Enabled {
+			r.Reason = "No enabled applicable policy"
+			out.Readings = append(out.Readings, r)
+			continue
+		}
+		r.CadenceConflict = in.IntervalSeconds > p.TTLSeconds
+		r.ExpiresAt = e.ObservedAt.Add(time.Duration(p.TTLSeconds) * time.Second)
+		if usable {
+			r.Freshness = "stale"
+			if in.At.Before(r.ExpiresAt) {
+				r.Freshness = "fresh"
+			}
+		}
+		authority := in.Authority == nil || (e.ProfileVersion > 0 && in.Authority[e.ProfileID] == e.ProfileVersion)
+		if !in.Active || !in.Trusted || !authority {
+			r.Reason = "Current resource or trust authority is unavailable"
+		} else if usable && r.Freshness == "fresh" {
+			switch p.Rule {
+			case "filesystem_used_high":
+				r.Health = "healthy"
+				r.Reason = "Filesystem usage below explicit threshold"
+				if float64(e.Value.Integer) >= p.Threshold {
+					r.Health = "degraded"
+					r.Reason = "Filesystem usage at or above explicit threshold"
+				}
+			case "memory_available_low":
+				r.Health = "healthy"
+				r.Reason = "Available memory above explicit threshold"
+				if e.Value.Integer <= uint64(p.Threshold) {
+					r.Health = "degraded"
+					r.Reason = "Available memory at or below explicit threshold"
+				}
+			}
+		} else {
+			r.Reason = "Health requires fresh valid evidence"
+		}
+		out.Readings = append(out.Readings, r)
+	}
+	sort.Slice(out.Readings, func(i, j int) bool {
+		a, b := out.Readings[i], out.Readings[j]
+		if a.Evidence.Key != b.Evidence.Key {
+			return a.Evidence.Key < b.Evidence.Key
+		}
+		return a.Evidence.Resource < b.Evidence.Resource
+	})
+	return out, nil
+}
+func validValue(e collection.Evidence) bool {
+	k, v, u := e.Key, e.Value, e.Unit
+	family := "linux.identity"
+	switch {
+	case strings.HasPrefix(k, "linux.filesystem."):
+		family = "linux.filesystems"
+	case strings.HasPrefix(k, "linux.mem."):
+		family = "linux.memory"
+	case strings.HasPrefix(k, "linux.load."), k == "linux.cpu.logical_count":
+		family = "linux.load"
+	case k == "linux.uptime.seconds":
+		family = "linux.uptime"
+	}
+	if e.CollectorID != family || (family == "linux.filesystems") != (e.Resource != "") {
+		return false
+	}
+	if k == "linux.filesystem.identifier" || k == "linux.hostname" || strings.HasPrefix(k, "linux.os.") || k == "linux.kernel.release" || k == "linux.architecture" {
+		return v.Kind == "text" && u == "text" && len(v.Text) > 0 && len(v.Text) <= 4096
+	}
+	if k == "linux.uptime.seconds" || strings.HasPrefix(k, "linux.load.") {
+		want := "load"
+		if k == "linux.uptime.seconds" {
+			want = "seconds"
+		}
+		return v.Kind == "number" && u == want && v.Number >= 0 && !math.IsNaN(v.Number) && !math.IsInf(v.Number, 0)
+	}
+	if k == "linux.cpu.logical_count" {
+		return v.Kind == "integer" && u == "count" && v.Integer > 0
+	}
+	if k == "linux.filesystem.utilization_percent" {
+		return v.Kind == "integer" && u == "percent" && v.Integer <= 100
+	}
+	return v.Kind == "integer" && u == "bytes"
+}

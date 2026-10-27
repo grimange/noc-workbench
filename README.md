@@ -288,7 +288,7 @@ percent at or above a configured threshold, and available memory bytes at or bel
 a configured threshold. No health thresholds are enabled by default. These narrow
 resource conditions require fresh valid evidence and current verified profile
 context; generic facts always leave comprehensive host/application health unknown.
-No load-to-CPU conversion, service inference, alerts or collection commands are added.
+No load-to-CPU conversion, service inference or collection commands are added by evaluation.
 
 Historical selection uses observed, received, database-recorded and terminal-run
 recording timestamps; it is not a historical PostgreSQL transaction snapshot.
@@ -298,3 +298,39 @@ availability cannot be reconstructed. Retention is not reversed or backfilled.
 Current inventory/trust context is conservative and is not reconstructed historically.
 Policies and retained evidence are sufficient to reproduce a result with the same
 explicit context and timestamp; no computed current-state table is maintained.
+
+### Historical monitoring and alerts (NW-013)
+
+Asset Linux Facts links to Monitoring history & alerts. Numeric load, memory and
+filesystem samples come from the existing PostgreSQL observations. Select 1, 6,
+24 or 168 hours and a filesystem mount where applicable. Queries reject ranges
+above 1000 samples; narrow the range rather than silently downsampling. Locally
+bundled SVG charts preserve gaps after expired sampling intervals or failed runs.
+The exact-value table retains units, UTC source timestamps and observation/run
+provenance; timestamps can render in UTC or the browser's local timezone. Retained
+latest samples do not imply continuous historical coverage.
+
+Create an explicit NW-012 memory-availability or filesystem-utilization policy,
+then opt in an alert rule on the asset monitoring page. Rules have immutable
+`evidence-alert.v1` revisions, severity and 0–86400-second duration debounce. There
+are no default enabled alerts. The bounded in-process evaluator consumes persisted
+canonical evaluation results; it never initiates SSH. It rotates through 20 due
+asset cursors per one-second tick, so transitions can be delayed under load or
+database failure. Freshness uses exact NW-012 boundaries at each evaluation.
+
+One durable alert identity per rule/resource prevents duplicate active instances.
+Continuously usable degraded evidence satisfies debounce; evidence gaps and policy
+revisions reset pending time. Active alerts persist with stale/unknown/disabled
+evidence until fresh valid evidence establishes recovery. Rule and policy revisions
+reconcile the same identity. Acknowledgment is idempotent operator awareness,
+separate from recovery. Events retain normalized evidence and policy references.
+Bounded on-demand maintenance expires events and old resolved instances after 90
+days; active and pending conditions remain. Views show the latest 100 instances and
+100 transitions per asset. The alert center lists the first 50 assets by name.
+
+Authenticated asset SSE streams carry reconciliation notifications, never metric
+payloads or guaranteed replay. Browsers fetch authoritative HTML on connection,
+reconnection and changes, updating charts and alert/evaluation sections. At most 32
+streams share bounded 65-second connections; sessions are revalidated every five
+seconds and slow writes have three-second deadlines. `X-Accel-Buffering: no`
+requests proxy streaming. No external CDN, event broker or remote command is added.

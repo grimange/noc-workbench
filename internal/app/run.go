@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"noc-workbench/internal/alerts"
 	"noc-workbench/internal/collection"
 	linux "noc-workbench/internal/collectors/linux"
 	"noc-workbench/internal/connections"
@@ -78,6 +79,9 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		schedulerDone <- err
 	}()
 	defer func() { shutdown(); <-schedulerDone }()
+	alertsDone := make(chan struct{})
+	go func() { defer close(alertsDone); alerts.Run(ctx, db) }()
+	defer func() { shutdown(); <-alertsDone }()
 	handler := web.New(db, web.Options{
 		Enrollment: enrollment, Discovery: discovery, Scheduler: scheduling, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,

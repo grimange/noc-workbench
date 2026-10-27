@@ -199,3 +199,10 @@ input[type="checkbox"] { width: 1.25rem; min-height: 1.25rem; align-self: flex-s
 
 .evidence-evaluation p, .evidence-evaluation h3 { overflow-wrap: anywhere; min-width: 0; }
 .evidence-evaluation input:not([type=checkbox]), .evidence-evaluation select { max-width: 100%; min-width: 0; }
+/* Monitoring retains exact tabular values alongside a bounded local SVG plot. */
+#history-chart {width:100%;max-height:280px;background:var(--surface,#142334);margin-block:1rem}
+#history-chart line {stroke:#40c5b5;stroke-width:2}
+#history-chart circle {fill:#40c5b5}
+#history-chart text {fill:#cfdae4;font-size:14px}
+.linux-discovery .table-scroll {max-width:100%;overflow:auto}
+.linux-discovery td {overflow-wrap:anywhere}

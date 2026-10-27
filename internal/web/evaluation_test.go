@@ -1,9 +1,12 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"noc-workbench/internal/collection"
@@ -192,6 +195,126 @@ func TestIntegrationEvaluationHTTP(t *testing.T) {
 	if len(history) != 1 {
 		t.Fatal("evaluation dispatched SSH", len(history))
 	}
+
+	// NW-013 consumes the real five-collector evidence without further SSH.
+	monitorPath := strings.TrimSuffix(path, "/linux") + "/monitoring"
+	policy.Set("revision", "2")
+	policy.Set("threshold", "9007199254740992")
+	if request(h, "POST", evalPath, policy, cookie).Code != 303 {
+		t.Fatal("alert health policy")
+	}
+	evidence, e := db.EvaluationEvidence(ctx, actor, hscope, time.Now().Add(time.Second))
+	must(e)
+	var policyID string
+	for _, p := range evidence.Policies {
+		if p.Selector == "linux.mem.available_bytes" {
+			policyID = p.ID
+		}
+	}
+	alertForm := url.Values{"csrf": {csrf}, "action": {"rule"}, "policy": {policyID}, "revision": {"0"}, "severity": {"warning"}, "debounce": {"0"}, "enabled": {"yes"}}
+	if request(h, "POST", monitorPath, alertForm, cookie).Code != 303 {
+		t.Fatal("rule create")
+	}
+	if request(h, "POST", monitorPath, url.Values{"action": {"rule"}}, cookie).Code != 403 {
+		t.Fatal("rule csrf")
+	}
+	if request(h, "POST", monitorPath, alertForm).Code != 401 {
+		t.Fatal("unauthenticated rule mutation")
+	}
+	badOrigin := httptest.NewRequest("POST", monitorPath, strings.NewReader(alertForm.Encode()))
+	badOrigin.Host = "127.0.0.1:8080"
+	badOrigin.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	badOrigin.Header.Set("Origin", "https://invalid.example.invalid")
+	badOrigin.AddCookie(cookie)
+	rejected = httptest.NewRecorder()
+	h.ServeHTTP(rejected, badOrigin)
+	if rejected.Code != 403 {
+		t.Fatal("rule Origin", rejected.Code)
+	}
+	must(db.EvaluateAlerts(ctx, hscope, time.Now().Add(time.Second)))
+	av, e := db.AlertView(ctx, actor, hscope)
+	must(e)
+	if len(av.Alerts) != 1 || av.Alerts[0].State != "active" {
+		t.Fatal(av)
+	}
+	mw := request(h, "GET", monitorPath, nil, cookie)
+	if mw.Code != 200 || !strings.Contains(mw.Body.String(), "Historical samples") {
+		t.Fatal(mw.Code, mw.Body.String())
+	}
+	var data monitoringData
+	mw = request(h, "GET", monitorPath+"?format=json", nil, cookie)
+	must(json.Unmarshal(mw.Body.Bytes(), &data))
+	if len(data.Series.Samples) != 1 {
+		t.Fatal("real history chart sample", data.Series)
+	}
+	ack := url.Values{"csrf": {csrf}, "action": {"acknowledge"}, "alert": {av.Alerts[0].ID}}
+	if request(h, "POST", monitorPath, ack, cookie).Code != 303 {
+		t.Fatal("acknowledgment")
+	}
+	av, e = db.AlertView(ctx, actor, hscope)
+	must(e)
+	if av.Alerts[0].AcknowledgedAt == nil {
+		t.Fatal("ack not durable")
+	}
+	if request(h, "GET", strings.Replace(monitorPath, c.ID, workspace.OperatorID, 1), nil, cookie).Code == 200 {
+		t.Fatal("monitor scope")
+	}
+	history, e = db.CollectionHistory(ctx, actor, hscope, "")
+	must(e)
+	if len(history) != 1 {
+		t.Fatal("monitoring initiated collection")
+	}
+	// Authenticated SSE uses real streaming ResponseController writes. Reconnect
+	// always requests reconciliation and carries no sensitive evidence payload.
+	streamServer := httptest.NewServer(h)
+	for range 2 {
+		streamCtx, stopStream := context.WithTimeout(ctx, 3*time.Second)
+		req, err := http.NewRequestWithContext(streamCtx, "GET", streamServer.URL+strings.TrimSuffix(path, "/linux")+"/events", nil)
+		must(err)
+		req.Host = "127.0.0.1:8080"
+		req.AddCookie(cookie)
+		response, err := streamServer.Client().Do(req)
+		must(err)
+		if response.StatusCode != 200 || response.Header.Get("X-Accel-Buffering") != "no" {
+			t.Fatal("SSE headers", response.StatusCode)
+		}
+		line, err := bufio.NewReader(response.Body).ReadString('\n')
+		must(err)
+		if line != "event: reconcile\n" {
+			t.Fatal("missing reconcile", line)
+		}
+		response.Body.Close()
+		stopStream()
+	}
+	// Exactly 32 streams can coexist; a 33rd is rejected, never queued unboundedly.
+	responses := make([]*http.Response, 0, 32)
+	for range 32 {
+		req, err := http.NewRequest("GET", streamServer.URL+strings.TrimSuffix(path, "/linux")+"/events", nil)
+		must(err)
+		req.Host = "127.0.0.1:8080"
+		req.AddCookie(cookie)
+		response, err := streamServer.Client().Do(req)
+		must(err)
+		if response.StatusCode != 200 {
+			t.Fatal("stream capacity", response.StatusCode)
+		}
+		responses = append(responses, response)
+	}
+	req, err := http.NewRequest("GET", streamServer.URL+strings.TrimSuffix(path, "/linux")+"/events", nil)
+	must(err)
+	req.Host = "127.0.0.1:8080"
+	req.AddCookie(cookie)
+	excess, err := streamServer.Client().Do(req)
+	must(err)
+	excess.Body.Close()
+	if excess.StatusCode != 429 {
+		t.Fatal("unbounded streams", excess.StatusCode)
+	}
+	for _, response := range responses {
+		response.Body.Close()
+	}
+	streamServer.Close()
+
 	_, e = svc.Act(ctx, actor, r.EndpointID, r.ID, r.Revision, "disable", "", "")
 	must(e)
 	unknown := read(time.Now().UTC().Add(time.Second))
@@ -199,5 +322,28 @@ func TestIntegrationEvaluationHTTP(t *testing.T) {
 		if v.Health != "unknown" {
 			t.Fatal("disabled authority condition", v)
 		}
+	}
+	// Session revocation terminates an already authenticated stream at its next tick.
+	revokedServer := httptest.NewServer(h)
+	defer revokedServer.Close()
+	streamCtx, cancelStream := context.WithTimeout(ctx, 8*time.Second)
+	defer cancelStream()
+	req, err = http.NewRequestWithContext(streamCtx, "GET", revokedServer.URL+strings.TrimSuffix(path, "/linux")+"/events", nil)
+	must(err)
+	req.Host = "127.0.0.1:8080"
+	req.AddCookie(cookie)
+	live, err := revokedServer.Client().Do(req)
+	must(err)
+	defer live.Body.Close()
+	if live.StatusCode != 200 {
+		t.Fatal("stream after capacity release", live.StatusCode)
+	}
+	if request(h, "POST", "/logout", url.Values{"csrf": {csrf}}, cookie).Code != 303 {
+		t.Fatal("logout revocation")
+	}
+	_, err = io.ReadAll(live.Body)
+	must(err)
+	if streamCtx.Err() != nil {
+		t.Fatal("revoked stream continued")
 	}
 }

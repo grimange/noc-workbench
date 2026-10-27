@@ -73,3 +73,15 @@ inferred. Retained samples may be projected into the future to verify exact expi
 Evaluation is pure, bounded to 2048 series and 32 applicable policies, versioned and
 clock-free. Overall service health remains unknown; narrow configured resource
 conditions never imply application availability.
+
+
+NW-013 migration `010_alerts.sql` adds immutable scoped `alert_rule` revisions,
+`alert_cursor` evaluation rotation, one `alert_instance` per rule/resource hash,
+and transactional `alert_event` history. Composite foreign keys and a policy-scope
+trigger reject foreign asset/environment/customer policies and alert events.
+Asset-row locking serializes rule revision, evaluation and acknowledgment. State
+and event snapshots are normalized and bounded to 32 KiB; no command output is
+stored. Policy changes retain alert identity and event provenance. Observations
+remain the sole measurement store; a partial numeric history index supports
+bounded charts. Alert history maintenance removes at most 1000 expired events and
+100 old resolved instances per pass, preserving concurrently reactivated alerts.

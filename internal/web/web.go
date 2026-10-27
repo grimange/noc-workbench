@@ -50,9 +50,11 @@ type Server struct {
 	window    time.Time
 	attempts  int
 	busy      chan struct{}
+	streams   chan struct{}
 	now       func() time.Time
 }
 type pageData struct {
+	Monitoring                                                 monitoringData
 	Evaluation                                                 evaluationData
 	Scheduling                                                 schedulingData
 	Enrollment                                                 enrollmentData
@@ -73,9 +75,14 @@ func New(store Store, options Options) http.Handler {
 	if err != nil || u.Host == "" {
 		panic("invalid web base URL")
 	}
-	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), now: time.Now}
+	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), streams: make(chan struct{}, 32), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /monitoring", s.monitoringOverview)
+	mux.HandleFunc("GET /alerts", s.monitoringOverview)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/monitoring", s.assetMonitoring)
+	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/monitoring", s.assetMonitoring)
+	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/events", s.monitoringEvents)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/evaluation", s.assetEvaluation)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/evaluation", s.assetEvaluation)
 	mux.HandleFunc("GET /scheduler", s.schedulerPage)
@@ -122,7 +129,7 @@ func New(store Store, options Options) http.Handler {
 		// Preserve Origin on native same-origin form POSTs; no-referrer makes
 		// browsers send Origin: null. Cross-origin destinations get no referrer.
 		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		if options.SecureCookie {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -151,6 +158,9 @@ func New(store Store, options Options) http.Handler {
 			}
 		}
 		budget := 3 * time.Second
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			budget = 65 * time.Second
+		}
 		if strings.HasSuffix(r.URL.Path, "/ssh") || strings.HasSuffix(r.URL.Path, "/linux") {
 			budget = 12 * time.Second
 		}

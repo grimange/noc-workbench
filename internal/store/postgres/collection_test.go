@@ -320,6 +320,7 @@ func TestIntegrationCollectionWriteFailureRecovery(t *testing.T) {
 func TestIntegrationNW009Upgrade(t *testing.T) { testUpgrade(t, "007", 6) }
 func TestIntegrationNW010Upgrade(t *testing.T) { testUpgrade(t, "008", 7) }
 func TestIntegrationNW011Upgrade(t *testing.T) { testUpgrade(t, "009", 8) }
+func TestIntegrationNW012Upgrade(t *testing.T) { testUpgrade(t, "010", 9) }
 func testUpgrade(t *testing.T, before string, priorCount int) {
 	ctx := context.Background()
 	dsn := isolatedDSN(t)
@@ -374,7 +375,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 9 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 10 {
 		t.Fatal("upgrade history", e, count)
 	}
 	var name string

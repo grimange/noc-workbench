@@ -240,7 +240,6 @@ input:not([type=hidden]),select,textarea {min-height:38px;padding:.5rem .75rem;b
 th,td {padding:12px 14px;vertical-align:top;font-size:.9rem}thead th {background:var(--bg);font-size:.78rem;letter-spacing:0;text-transform:none;color:var(--muted);font-weight:600}tbody tr:hover{background:var(--bg)}
 .table-scroll {max-width:100%;overscroll-behavior-x:contain}.status-label {display:inline-block;font-size:.82rem;font-weight:600;color:var(--muted)}.status-label.observed{color:var(--teal)}.status-label.warning{color:#965000}:root[data-theme=dark] .status-label.warning{color:#ffd18c}
 .section-note {font-size:.82rem;margin:12px 0;color:var(--muted)}.pagination{display:flex;gap:16px;align-items:center;justify-content:flex-end;padding:12px 0}
-.monitoring-strip {display:flex;flex-wrap:wrap;gap:6px 20px;align-items:center;margin-top:12px}.monitoring-strip>p{font-size:.85rem}.monitoring-strip .console-summary {width:100%;margin:8px 0 0;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}.console-summary dt{font-size:.78rem}.console-summary dd{font-size:.86rem}
 .resource-overview {margin:16px 0}.resource-gauges {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--border);border-radius:6px;background:var(--surface)}.resource-gauge {padding:18px 20px;min-width:0}.resource-gauge+.resource-gauge {border-left:1px solid var(--border)}.resource-gauge h3{color:var(--muted);font-size:.85rem;font-weight:500}.gauge-value{font-size:1.8rem;display:block;margin:8px 0}.resource-gauge p{font-size:.83rem;margin-top:6px}.resource-gauge .empty-measurement{color:var(--muted)}progress {display:block;width:100%;height:8px;accent-color:var(--teal);border:0;border-radius:5px}progress::-webkit-progress-bar{background:var(--surface-raised);border-radius:5px}progress::-webkit-progress-value{background:var(--teal);border-radius:5px}
 .resource-overview>details.panel{padding:8px 20px}.section-tabs{display:flex;gap:24px;border-bottom:1px solid var(--border);margin:20px 0 0;flex-wrap:wrap}.section-tabs a{padding:10px 2px;color:var(--muted);border-bottom:3px solid transparent;font-weight:600}.section-tabs a[aria-current]{color:var(--teal);border-color:var(--teal)}.detail-section {margin:16px 0}.detail-section>h2{margin-bottom:8px}.detail-section>p{margin:6px 0}.detail-section>h3{margin:16px 0 8px}
 .monitoring-console details>summary{font-size:.88rem}.monitoring-console details>p{margin:8px 0}.monitoring-console>details.panel{padding:10px 20px}.monitoring-console details .panel{border:0;padding:8px 0}.monitoring-console details .panel h3{margin-top:14px}
@@ -257,8 +256,33 @@ button[data-sort]{background:transparent;border:0;color:inherit;cursor:pointer;f
 .skip-link:not(:focus){clip-path:inset(50%);width:1px;height:1px;overflow:hidden;padding:0}
 
 /* E2 operational summaries use evidence, never decorative health scores. */
-.fleet-summary{display:flex;flex-wrap:wrap;gap:8px 24px;padding:12px 20px;border-block:1px solid var(--border);color:var(--muted);font-size:.85rem}.fleet-summary strong{color:var(--text);font-size:1rem}.console-search{flex-wrap:wrap}.console-search select{max-width:100%;min-height:38px}.status-label.warning{border:1px solid currentColor}.monitoring-strip .status-label{font-size:1rem}.resource-gauge progress{height:10px;accent-color:var(--teal)}.resource-gauge p{line-height:1.5}.resource-gauge .gauge-value{font-variant-numeric:tabular-nums}@media(max-width:480px){.console-search select{width:100%}.fleet-summary{padding:12px;gap:8px 16px}}
-.monitoring-strip>details{width:100%;min-width:0}.monitoring-strip .console-summary{grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr))}.monitoring-strip>p{min-width:0;overflow-wrap:anywhere}
+.fleet-summary{display:flex;flex-wrap:wrap;gap:8px 24px;padding:12px 20px;border-block:1px solid var(--border);color:var(--muted);font-size:.85rem}.fleet-summary strong{color:var(--text);font-size:1rem}.console-search{flex-wrap:wrap}.console-search select{max-width:100%;min-height:38px}.status-label.warning{border:1px solid currentColor}.resource-gauge progress{height:10px;accent-color:var(--teal)}.resource-gauge p{line-height:1.5}.resource-gauge .gauge-value{font-variant-numeric:tabular-nums}@media(max-width:480px){.console-search select{width:100%}.fleet-summary{padding:12px;gap:8px 16px}}
 
 /* Closed evidence panels must not contribute intrinsic table widths. */
 details:not([open])>:not(summary){display:none}
+
+/* Compact Server Details overview; controls and diagnostics retain natural height. */
+.server-details .page-heading {margin-bottom:8px}
+.server-details #console-live-status {font-size:.78rem;margin:4px 0 8px}
+.monitoring-overview {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 20px;padding:14px 18px}
+.monitoring-status-row {display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;font-size:.85rem;min-width:0}
+.monitoring-status-row .status-label {font-size:1rem}
+.monitoring-actions {align-self:start}
+.monitoring-actions form {display:flex;gap:8px;margin:0}
+.monitoring-overview .console-summary {display:flex;flex-wrap:wrap;gap:6px 32px;margin:0;grid-column:1/-1}
+.monitoring-overview .console-summary dd {margin:2px 0 0}
+.monitoring-overview .notice,.monitoring-diagnostic,.monitoring-blockers {grid-column:1/-1;margin:0;font-size:.85rem}
+.monitoring-blockers {display:flex;flex-wrap:wrap;gap:4px 24px;padding-left:18px}
+.monitoring-disclosures {grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 24px;font-size:.83rem}
+.monitoring-disclosures details {min-width:0;max-width:100%;margin:0}
+.monitoring-disclosures details[open] {flex-basis:100%}
+.monitoring-disclosures details[open]>:not(summary) {margin-top:8px}
+.server-details .resource-overview {margin:10px 0}
+.server-details .resource-gauge {padding:12px 18px;display:flex;flex-direction:column;gap:4px}
+.server-details .gauge-value {font-size:1.6rem;margin:0}
+.server-details .resource-gauge p {margin:0;line-height:1.4}
+.server-details .resource-gauge progress {height:8px;margin:2px 0}
+.server-details .resource-overview>details.panel {padding:7px 18px;margin-top:8px}
+.server-details .section-tabs {margin-top:12px}
+@media(max-width:800px){.monitoring-overview {grid-template-columns:minmax(0,1fr);gap:8px;padding:12px 14px}.monitoring-actions {grid-row:3}.monitoring-disclosures {gap:8px 20px}}
+@media(max-width:480px){.server-details .resource-gauge {display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;padding:10px 14px}.server-details .resource-gauge .gauge-value {text-align:right}.monitoring-overview .console-summary {gap:8px 20px}.monitoring-status-row {gap:6px 14px}.monitoring-actions form {flex-wrap:wrap}}

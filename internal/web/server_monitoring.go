@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/collectors/services"
@@ -12,19 +13,27 @@ import (
 	"noc-workbench/internal/workspace"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type runtimeRow struct {
-	Reading            services.Reading
-	Evidence           collection.Evidence
-	Freshness, Quality string
+	Reading                             services.Reading
+	Evidence                            collection.Evidence
+	Freshness, Quality                  string
+	Name, State, Process, Unit, Outcome string
+	AgeSeconds                          int64
 }
 type runtimeData struct {
-	Available, Enabled bool
-	Status             string
-	Profile            scheduler.Profile
-	Rows               []runtimeRow
-	Attempt            *collection.Run
+	Available, Enabled          bool
+	Status                      string
+	Profile                     scheduler.Profile
+	Rows                        []runtimeRow
+	Attempt                     *collection.Run
+	LastObservation             time.Time
+	LastSuccess                 time.Time
+	Freshness, Summary, Outcome string
+	ProcessCount, ProcessTotal  int
 }
 
 func (s *Server) serverRuntime(r *http.Request, v workspace.ServerDetail, in health.Input, out health.Evaluation, records []connections.Record) (runtimeData, error) {
@@ -56,13 +65,36 @@ func (s *Server) serverRuntime(r *http.Request, v workspace.ServerDetail, in hea
 	}
 	if repo, ok := s.store.(interface {
 		RuntimeAttempt(context.Context, workspace.Principal, collection.HistoryScope) (*collection.Run, error)
+		RuntimeSuccess(context.Context, workspace.Principal, collection.HistoryScope) (*collection.Run, error)
 	}); ok {
 		var e error
+		in.LastSuccess, e = repo.RuntimeSuccess(r.Context(), operatorPrincipal(), in.Scope)
+		if e != nil {
+			return d, e
+		}
 		d.Attempt, e = repo.RuntimeAttempt(r.Context(), operatorPrincipal(), in.Scope)
 		if e != nil {
 			return d, e
 		}
 	}
+	return runtimeReadings(d, in, out), nil
+}
+
+func runtimeReadings(d runtimeData, in health.Input, out health.Evaluation) runtimeData {
+	d.Freshness = ""
+	d.Outcome = "Not attempted"
+	if d.Attempt != nil {
+		d.Outcome = d.Attempt.State
+		for _, result := range d.Attempt.Results {
+			if result.CollectorID == services.Collector {
+				d.Outcome = result.Outcome
+			}
+		}
+	}
+	if in.LastSuccess != nil {
+		d.LastSuccess = in.LastSuccess.EndedAt
+	}
+
 	for _, reading := range out.Readings {
 		if reading.Evidence.Key != services.Key {
 			continue
@@ -78,9 +110,81 @@ func (s *Server) serverRuntime(r *http.Request, v workspace.ServerDetail, in hea
 		if d.Enabled && authorized && reading.Freshness == "fresh" && reading.Quality == "valid" {
 			classified.Current = classified.Runtime
 		}
-		d.Rows = append(d.Rows, runtimeRow{classified, ev, reading.Freshness, reading.Quality})
+		row := runtimeRow{Reading: classified, Evidence: ev, Freshness: reading.Freshness, Quality: reading.Quality, AgeSeconds: reading.AgeSeconds, Name: serviceName(sig.ID), State: classified.Current, Outcome: "success"}
+		row.Process = "Unknown"
+		if sig.Process == "observed" {
+			row.Process = "Process running"
+		} else if sig.Process == "not_observed" {
+			row.Process = "Process not observed"
+		}
+		row.Unit = "Unit unavailable"
+		if sig.Unit == "loaded" {
+			row.Unit = sig.UnitName + " · " + sig.Active
+		}
+		if row.State == "Running" && sig.Process == "observed" {
+			row.State = "Process running"
+		}
+		if d.Enabled && authorized && reading.Freshness == "stale" {
+			row.State = "Stale"
+		}
+		row.Outcome = d.Outcome
+		if ev.ObservedAt.After(d.LastObservation) {
+			d.LastObservation = ev.ObservedAt
+		}
+		if d.Freshness == "" || reading.Freshness == "stale" {
+			d.Freshness = reading.Freshness
+		}
+		if strings.HasPrefix(sig.ID, "AST_") {
+			d.ProcessTotal++
+			if classified.Current == "Running" {
+				d.ProcessCount++
+			}
+		}
+		d.Rows = append(d.Rows, row)
 	}
-	return d, nil
+	slices.SortStableFunc(d.Rows, func(a, b runtimeRow) int {
+		return slices.Index(services.IDs, a.Reading.ID) - slices.Index(services.IDs, b.Reading.ID)
+	})
+	if d.Freshness == "" {
+		d.Freshness = "Unknown"
+	}
+	if d.Outcome == "" {
+		d.Outcome = "Not attempted"
+		if d.Attempt != nil {
+			d.Outcome = d.Attempt.State
+		}
+	}
+	d.Summary = "Unknown — no runtime evidence"
+	if !d.Enabled {
+		d.Summary = d.Status
+	} else if d.Outcome != "success" && d.Attempt != nil {
+		d.Summary = "Collection " + d.Outcome
+	} else if d.Freshness == "stale" {
+		d.Summary = "Stale evidence"
+	} else if len(d.Rows) > 0 {
+		running, stopped := 0, 0
+		for _, row := range d.Rows {
+			if row.Reading.Current == "Running" {
+				running++
+			}
+			if row.Reading.Current == "Stopped" {
+				stopped++
+			}
+		}
+		d.Summary = fmt.Sprintf("%d running · %d stopped · %d unknown/unsupported", running, stopped, len(d.Rows)-running-stopped)
+	}
+	return d
+}
+func serviceName(id string) string {
+	switch id {
+	case "asterisk":
+		return "Asterisk"
+	case "database":
+		return "MariaDB / MySQL"
+	case "apache":
+		return "Apache"
+	}
+	return id
 }
 
 // Explicit opt-in configures the existing one-per-server profile. It preserves

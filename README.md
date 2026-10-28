@@ -18,7 +18,7 @@ unset operator_password
 make up
 ```
 
-Open **http://127.0.0.1:8080**. Sign in with the chosen password. The Dashboard lists active servers directly, with customer, primary endpoint and all cluster memberships. Search by server name, IP, hostname or customer; select a server to view its endpoints, bound service instances and retained monitoring evidence. These pages do not initiate collection. Service health remains Unknown unless established by the existing monitoring policies. Inventory management and monitoring deep links remain available. Workspace settings are at `/settings`. `/healthz` returns application DB readiness, never infrastructure/service health. No JS or CDN is required.
+Open **http://127.0.0.1:8080**. Sign in with the chosen password. The Dashboard lists active authorized servers with customer, primary endpoint, monitoring status, latest runtime attempt, last observation, freshness and a service summary. Search by server name, IP, hostname or customer; select a server to inspect persisted runtime services first, followed by historical VICIdial installation/roles. Process and systemd signals remain separate; failures preserve earlier observations and disabled monitoring does not present historical Running as current. Technical evidence and inventory settings remain in collapsed disclosures. These pages and their bounded SSE updates do not initiate collection. Service health remains Unknown unless established by the existing monitoring policies. Inventory management and monitoring deep links remain available. Workspace settings are at `/settings`. `/healthz` returns application DB readiness, never infrastructure/service health. No CDN is required. A small same-origin script reconciles persisted monitoring displays through the existing SSE delivery; normal navigation remains available without JavaScript.
 
 Save the generated DB password and operator hash in your own protected secret store before closing the shell. Reuse the same DB password on ordinary restarts: changing the Compose environment does not change credentials in an existing PostgreSQL volume. No default login exists. An ignored `.env` may hold `NOC_DB_PASSWORD` for Compose, but the Go application does **not** automatically read `.env`; export its configuration explicitly. Never commit that file.
 
@@ -503,8 +503,8 @@ timestamp, reasons and hashed candidate peer references. No passwords, arbitrary
 registry fields, recordings, raw configuration or peer addresses are retained.
 PostgreSQL migration 014 extends existing observation constraints and freshness
 policy; it does not create inventory members, schedules or remote authority.
-Runtime service monitoring is described below. Further Dashboard integration
-remains NW-36 Slice C.
+Runtime service monitoring and its monitoring-first Dashboard/Server Details
+presentation are described below.
 
 ## Runtime service monitoring (NW-36 Slice B)
 
@@ -540,5 +540,24 @@ service inventory tables or automatically enabling polling. Runtime evidence use
 the existing versioned policy evaluator (default TTL 180 seconds). Failed attempts
 preserve prior observations and original timestamps. Disabled, paused, blocked,
 untrusted or stale evidence has Unknown current runtime state; its last observed
-state remains available. Broader Dashboard/service presentation remains Slice C;
+state remains available. Dashboard and Server Details present current runtime monitoring before historical installation discovery;
 NW-37 hybrid Asterisk operational monitoring remains deferred.
+
+
+### Monitoring console (NW-36 Slice C)
+
+Dashboard queries are paginated at 25 servers and retrieve monitoring evidence in
+one bounded bulk snapshot. Server Details prioritizes the latest runtime attempt,
+last successful runtime collection, original observation timestamps and discovered
+services. A failed attempt is displayed separately from retained valid evidence.
+An inactive unit cannot override an observed running process. Stale or disabled
+readings retain historical values inside evidence disclosures, with no current
+Running assertion. These signals do not establish comprehensive application health.
+
+Historical VICIdial installation, topology and role classifications appear below
+runtime monitoring. Collector/evaluator versions, source references, identifiers,
+uncertainty and full UTC timestamps remain in collapsed technical evidence.
+Routine timestamps use Philippine time (PHT, UTC+08:00). Installation metadata
+freshness is labelled separately from runtime policy freshness. Restricted
+same-origin SSE notifications reconcile persisted HTML, including freshness and
+monitoring authorization changes; passive navigation never starts remote checks.

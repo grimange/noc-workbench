@@ -208,3 +208,14 @@ input[type="checkbox"] { width: 1.25rem; min-height: 1.25rem; align-self: flex-s
 .linux-discovery td {overflow-wrap:anywhere}
 .server-details p, .server-details h1, .server-details h3 { overflow-wrap: anywhere; }
 .server-details .table-scroll { max-width: 100%; }
+
+/* Monitoring console: primary evidence, compact summaries, secondary metadata. */
+.monitoring-console { width:100%; min-width:0; }
+.console-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1rem; }
+.console-summary div { min-width:0; }
+.console-summary dt { color:var(--muted); font-size:.8rem; }
+.console-summary dd { margin:.25rem 0; overflow-wrap:anywhere; }
+.role-list { display:flex; flex-wrap:wrap; gap:.4rem 1.5rem; padding-left:1.25rem; }
+.monitoring-console details { overflow-wrap:anywhere; }
+.monitoring-console summary { cursor:pointer; padding:.5rem 0; }
+.monitoring-console #console-live-status { color:var(--muted); font-size:.8rem; }

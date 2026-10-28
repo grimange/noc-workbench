@@ -24,7 +24,20 @@ import (
 
 //go:embed templates/*.html static/*
 var assets embed.FS
-var pages = template.Must(template.ParseFS(assets, "templates/*.html"))
+var pages = template.Must(template.New("").Funcs(template.FuncMap{"localTime": localTime, "utcTime": utcTime}).ParseFS(assets, "templates/*.html"))
+
+func localTime(t time.Time) string {
+	if t.IsZero() {
+		return "Not observed"
+	}
+	return t.In(time.FixedZone("PHT", 8*60*60)).Format("Jan 2, 2006, 3:04:05 PM MST")
+}
+func utcTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
 
 type Store interface {
 	Ping(context.Context) error
@@ -84,6 +97,8 @@ func New(store Store, options Options) http.Handler {
 	s := &Server{store: store, options: options, host: u.Host, busy: make(chan struct{}, 1), streams: make(chan struct{}, 32), now: time.Now}
 	s.inventory, _ = store.(inventory.Repository)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /console/events", s.consoleEvents)
+	mux.HandleFunc("GET /servers/{asset}/events", s.consoleEvents)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api", s.vicidialAPI)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api/events", s.vicidialAPIEvents)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api", s.vicidialAPI)

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"noc-workbench/internal/collection"
@@ -12,7 +13,7 @@ import (
 )
 
 type dashboardData struct {
-	Servers               []workspace.Server
+	Servers               []consoleServer
 	Query, Next, Previous string
 }
 type serverData struct {
@@ -33,13 +34,10 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	offset := 0
-	if v := r.URL.Query().Get("offset"); v != "" {
-		offset, err = strconv.Atoi(v)
-		if err != nil || offset < 0 || offset > 1000000 || offset%25 != 0 {
-			http.Error(w, "Invalid page", 400)
-			return
-		}
+	offset, err := consoleOffset(r)
+	if err != nil {
+		http.Error(w, "Invalid page", 400)
+		return
 	}
 	scope, err := (workspace.LocalOperatorPolicy{}).Scope(operatorPrincipal(), workspace.Search)
 	if err != nil {
@@ -49,7 +47,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
 	d.Dashboard.Query = raw
 	if repo, ok := s.store.(workspace.ServerRepository); ok {
 		var more bool
-		d.Dashboard.Servers, more, err = repo.Servers(r.Context(), scope, q, offset)
+		var servers []workspace.Server
+		servers, more, err = repo.Servers(r.Context(), scope, q, offset)
+		if err == nil {
+			d.Dashboard.Servers, err = s.consoleServers(r, scope, servers)
+		}
 		if err != nil {
 			s.inventoryFailure(w, d, err)
 			return
@@ -138,4 +140,16 @@ func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "settings.html", pageData{CSRF: session.CSRFToken, Label: label, Active: "settings"})
+}
+
+func consoleOffset(r *http.Request) (int, error) {
+	offset := 0
+	if v := r.URL.Query().Get("offset"); v != "" {
+		var e error
+		offset, e = strconv.Atoi(v)
+		if e != nil || offset < 0 || offset > 1000000 || offset%25 != 0 {
+			return 0, fmt.Errorf("invalid page")
+		}
+	}
+	return offset, nil
 }

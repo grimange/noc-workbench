@@ -97,6 +97,23 @@ func TestIntegrationRuntimeServices(t *testing.T) {
 			t.Fatal("provenance", ev)
 		}
 	}
+	// Bounded dashboard snapshot preserves canonical observations and scope.
+	at := time.Now().UTC()
+	bulk, records, e := db.ServerEvidence(ctx, workspace.Scope{Customers: []string{h.CustomerID}}, []string{h.AssetID}, at)
+	must(e)
+	if len(bulk) != 1 || len(records) != 1 || len(bulk[0].Evidence) != 8 || bulk[0].LatestAttempt.ID != run.ID || bulk[0].LastSuccess.ID != run.ID {
+		t.Fatalf("bulk provenance: %+v", bulk)
+	}
+	for _, scope := range []workspace.Scope{{}, {Customers: []string{workspace.OperatorID}}} {
+		denied, refs, err := db.ServerEvidence(ctx, scope, []string{h.AssetID}, at)
+		must(err)
+		if len(denied) != 0 || len(refs) != 0 {
+			t.Fatal("bulk scope escape")
+		}
+	}
+	if _, _, err := db.ServerEvidence(ctx, workspace.Scope{All: true}, make([]string, 26), at); err == nil {
+		t.Fatal("unbounded page")
+	}
 	first := facts[0]
 	for _, category := range []sshcli.Category{sshcli.ConnectionTimeout, sshcli.ChangedKey, sshcli.AuthenticationFailed, sshcli.PermissionDenied} {
 		exec.category = category
@@ -112,6 +129,11 @@ func TestIntegrationRuntimeServices(t *testing.T) {
 		}
 		attempt, e := db.RuntimeAttempt(ctx, p, h)
 		must(e)
+		bulk, _, e = db.ServerEvidence(ctx, workspace.Scope{All: true}, []string{h.AssetID}, time.Now().UTC())
+		must(e)
+		if bulk[0].LatestAttempt.ID != failed.ID || bulk[0].LastSuccess.ID != run.ID || !containsEvidenceID(bulk[0].Evidence, first.ID) {
+			t.Fatal("bulk failure erased success")
+		}
 		if attempt.ID != failed.ID || attempt.Category != string(category) {
 			t.Fatal("failure hidden", attempt)
 		}
@@ -152,6 +174,18 @@ func TestIntegrationRuntimeServices(t *testing.T) {
 	if count != len(services.IDs) {
 		t.Fatal(count)
 	}
+	// An additional pending profile must suppress trust identically on both views.
+	var pendingID string
+	must(db.pool.QueryRow(ctx, `INSERT INTO connection_profile(customer_id,environment_id,asset_id,endpoint_id,state,details) SELECT customer_id,environment_id,asset_id,endpoint_id,'draft','{}'::jsonb FROM connection_profile WHERE id=$1 RETURNING id::text`, target.ProfileID).Scan(&pendingID))
+	bulk, _, e = db.ServerEvidence(ctx, workspace.Scope{All: true}, []string{h.AssetID}, time.Now().UTC())
+	must(e)
+	detail, e := db.EvaluationEvidence(ctx, p, h, time.Now().UTC())
+	must(e)
+	if bulk[0].Trusted || detail.Trusted || len(bulk[0].Evidence) != 8 {
+		t.Fatal("two-profile trust mismatch")
+	}
+	_, e = db.pool.Exec(ctx, `DELETE FROM connection_profile WHERE id=$1`, pendingID)
+	must(e)
 	// Exact TTL expiration uses the supplied evaluator clock, never a sleep.
 	in.At = in.At.Add(181 * time.Second)
 	out, e = health.Evaluate(in)
@@ -242,4 +276,13 @@ func TestIntegrationTenCollectorAttempt(t *testing.T) {
 	if e != nil || in.LatestAttempt == nil || in.LatestAttempt.ID != run.ID || len(in.LatestAttempt.Results) != 10 {
 		t.Fatalf("truncated attempt: %+v %v", in.LatestAttempt, e)
 	}
+}
+
+func containsEvidenceID(es []collection.Evidence, id string) bool {
+	for _, e := range es {
+		if e.ID == id {
+			return true
+		}
+	}
+	return false
 }

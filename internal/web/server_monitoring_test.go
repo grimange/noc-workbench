@@ -39,6 +39,9 @@ func (e *serverRuntimeExecutor) Execute(_ context.Context, _ workspace.Principal
 			active = "unavailable"
 			name = "unknown"
 		}
+		if id == "asterisk" {
+			active = "stopped"
+		}
 		output += id + "|present|" + unit + "|" + active + "|observed|" + support + "|" + name + "\n"
 	}
 	output += "END\n"
@@ -47,6 +50,11 @@ func (e *serverRuntimeExecutor) Execute(_ context.Context, _ workspace.Principal
 
 func TestServerMonitoringAuthentication(t *testing.T) {
 	h, _ := fixture(t)
+	for _, path := range []string{"/console/events", "/servers/00000000-0000-4000-8000-000000000001/events"} {
+		if request(h, "GET", path, nil).Code != 401 {
+			t.Fatal("anonymous SSE", path)
+		}
+	}
 	if request(h, "POST", "/servers/00000000-0000-4000-8000-000000000001/monitoring", nil).Code != 401 {
 		t.Fatal("anonymous discovery")
 	}
@@ -141,10 +149,23 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 			t.Fatal("passive SSH")
 		}
 	}
-	for _, text := range []string{"Runtime services", "Monitoring enabled", "Running", "mariadb.service", "apache2.service", "linux.services v1", "Last observed:", "Freshness: fresh", "observation "} {
+	for _, text := range []string{"Monitored services", "Monitoring enabled", "Process running", "mariadb.service", "apache2.service", "linux.services v1", "Historical / last observed:", "Freshness: fresh", "observation "} {
 		if !strings.Contains(page.Body.String(), text) {
 			t.Fatal("missing evidence", text, page.Body.String())
 		}
+	}
+	// Dashboard bulk reader must show the same persisted state without SSH.
+	dashboard := request(h, "GET", "/", nil, cookie)
+	for _, text := range []string{"Synthetic installation", "Monitoring enabled", "8 running", "Freshness: fresh", "Topology: Unknown", "PHT"} {
+		if dashboard.Code != 200 || !strings.Contains(dashboard.Body.String(), text) {
+			t.Fatal("dashboard evidence", text, dashboard.Body.String())
+		}
+	}
+	if exec.calls != 1 {
+		t.Fatal("dashboard collected")
+	}
+	if !strings.Contains(page.Body.String(), "asterisk.service · stopped") {
+		t.Fatal("lost independent unit state")
 	}
 	// A passive credential-catalog change must invalidate current runtime even
 	// though the persisted connection profile and prior samples are unchanged.
@@ -152,8 +173,12 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 	must(e)
 	must(os.WriteFile(lab.Catalog, []byte("[]\n"), 0600))
 	page = request(h, "GET", path, nil, cookie)
-	if page.Code != 200 || exec.calls != 1 || strings.Contains(page.Body.String(), "<strong>Running</strong>") || !strings.Contains(page.Body.String(), "Last observed: Running") {
+	if page.Code != 200 || exec.calls != 1 || strings.Contains(page.Body.String(), "<strong>Process running</strong>") || !strings.Contains(page.Body.String(), "Historical / last observed: Running") {
 		t.Fatal("revoked credential presented current runtime", page.Body.String())
+	}
+	dashboard = request(h, "GET", "/", nil, cookie)
+	if dashboard.Code != 200 || strings.Contains(dashboard.Body.String(), "8 running") || exec.calls != 1 {
+		t.Fatal("revoked dashboard evidence", dashboard.Body.String())
 	}
 	must(os.WriteFile(lab.Catalog, catalog, 0600))
 	// An explicitly paused schedule is not resumed by runtime enable.
@@ -181,7 +206,12 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 		t.Fatal("disable", response.Code)
 	}
 	page = request(h, "GET", path, nil, cookie)
-	if exec.calls != 1 || !strings.Contains(page.Body.String(), "Monitoring disabled") || !strings.Contains(page.Body.String(), "<strong>Unknown</strong>") || !strings.Contains(page.Body.String(), "Last observed: Running") {
+	if exec.calls != 1 || !strings.Contains(page.Body.String(), "Monitoring disabled") || !strings.Contains(page.Body.String(), "<strong>Unknown</strong>") || !strings.Contains(page.Body.String(), "Historical / last observed: Running") {
 		t.Fatal("disabled fabricated current state", page.Body.String())
 	}
+	consoleBrowser(t, h, cookie, path)
+	if exec.calls != 1 {
+		t.Fatal("browser triggered collection")
+	}
+
 }

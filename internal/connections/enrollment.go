@@ -426,3 +426,37 @@ func clearTrust(r *Record) {
 	r.Details.Evidence = ""
 	r.Details.VerifiedAt = nil
 }
+
+// CurrentCredentials checks a bounded, already inventory-validated read snapshot
+// against the live catalog and in-process quarantine. It performs no remote IO.
+// It grants no execution authority; callers must independently validate endpoint
+// ownership/revision and use the usual execution path for any collection.
+func (s *Service) CurrentCredentials(p workspace.Principal, records []Record, at time.Time) map[string]bool {
+	out := map[string]bool{}
+	if len(records) > 2500 || s.Credentials == nil {
+		return out
+	}
+	credentials, e := s.Credentials.List()
+	if e != nil {
+		return out
+	}
+	byRef := map[string]sshcli.Credential{}
+	for _, c := range credentials {
+		if c.Enabled && (c.ExpiresAt.IsZero() || at.Before(c.ExpiresAt)) {
+			byRef[c.ID] = c
+		}
+	}
+	for _, r := range records {
+		if s.allowed(p, Manage, r) != nil || r.State != "connection_verified" {
+			continue
+		}
+		if _, blocked := s.quarantined.Load(r.ID); blocked {
+			continue
+		}
+		c, ok := byRef[r.Details.CredentialRef]
+		if ok && sshcli.CredentialDigest(c) == r.Details.CredentialDigest {
+			out[r.ID] = true
+		}
+	}
+	return out
+}

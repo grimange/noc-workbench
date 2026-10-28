@@ -190,9 +190,9 @@ func TestIntegrationBaselineDashboardPolicyParity(t *testing.T) {
 	svc := collection.NewService(baseline.Executor{Next: &baselineExec{}, Authority: db}, linux.Registry().Extend(baseline.Specs()...), db)
 	_, e = svc.Collect(collection.WithRequest(ctx, collection.Request{Source: "operator", Collectors: []string{baseline.Collector}}), p, target)
 	must(e)
-	_, e = collection.NewService(historyExecutor{}, linux.Registry(), db).Collect(ctx, p, target)
+	_, e = collection.NewService(historyExecutor{rootMount: true}, linux.Registry(), db).Collect(ctx, p, target)
 	must(e)
-	for _, key := range []string{"linux.baseline.status", "linux.baseline.cpu_percent", "linux.mem.available_bytes"} {
+	for _, key := range []string{"linux.baseline.status", "linux.baseline.cpu_percent", "linux.mem.available_bytes", "linux.mem.total_bytes", "linux.baseline.units", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent"} {
 		_, e = db.SaveEvaluationPolicy(ctx, p, h, health.Policy{Selector: key, TTLSeconds: 1, Rule: "none", Enabled: true})
 		must(e)
 	}
@@ -205,7 +205,7 @@ func TestIntegrationBaselineDashboardPolicyParity(t *testing.T) {
 	must(e)
 	d, e := health.Evaluate(detail)
 	must(e)
-	for _, key := range []string{"linux.baseline.status", "linux.baseline.cpu_percent", "linux.mem.available_bytes"} {
+	for _, key := range []string{"linux.baseline.status", "linux.baseline.cpu_percent", "linux.mem.available_bytes", "linux.mem.total_bytes", "linux.baseline.units", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent"} {
 		found := 0
 		for _, out := range []health.Evaluation{b, d} {
 			for _, reading := range out.Readings {
@@ -217,7 +217,11 @@ func TestIntegrationBaselineDashboardPolicyParity(t *testing.T) {
 				}
 			}
 		}
-		if found != 2 {
+		expected := 2
+		if key == "linux.baseline.units" {
+			expected = 64
+		}
+		if found != expected {
 			t.Fatal("missing selected evidence", key, found)
 		}
 	}

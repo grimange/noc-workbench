@@ -50,6 +50,13 @@ func TestIntegrationDashboardAndServer(t *testing.T) {
 			t.Fatal("authentication missing")
 		}
 	}
+	listDenied := request(h, "GET", "/servers", nil)
+	if listDenied.Code != http.StatusSeeOther || listDenied.Header().Get("Location") != "/login" {
+		t.Fatal("server list must redirect unauthenticated navigation to login")
+	}
+	if request(h, "GET", "/servers", nil, &http.Cookie{Name: "nw_session", Value: "invalid"}).Code != http.StatusUnauthorized {
+		t.Fatal("server list accepted invalid session")
+	}
 	for _, q := range []string{"", "Synthetic server", "192.0.2.45", "dashboard owner"} {
 		w := request(h, "GET", "/?q="+url.QueryEscape(q), nil, cookie)
 		if w.Code != 200 || !strings.Contains(w.Body.String(), path) {
@@ -60,6 +67,10 @@ func TestIntegrationDashboardAndServer(t *testing.T) {
 				t.Fatal("missing", text)
 			}
 		}
+	}
+	list := request(h, "GET", "/servers?q=Synthetic", nil, cookie)
+	if list.Code != 200 || !strings.Contains(list.Body.String(), path) || !strings.Contains(list.Body.String(), `href="/servers" aria-current="page"`) {
+		t.Fatal("server list alias", list.Body.String())
 	}
 	w := request(h, "GET", path, nil, cookie)
 	if w.Code != 200 {

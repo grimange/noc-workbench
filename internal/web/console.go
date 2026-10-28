@@ -16,6 +16,7 @@ import (
 
 type consoleServer struct {
 	workspace.Server
+	View      consolePresentation
 	Resources resourceData
 	Runtime   runtimeData
 	Discovery vicidialdiscovery.Result
@@ -92,6 +93,7 @@ func (s *Server) consoleServers(r *http.Request, scope workspace.Scope, servers 
 		}
 		out[i].Runtime = runtimeReadings(d, in, evaluated)
 		out[i].Resources = resources(in, evaluated, out[i].Runtime)
+		out[i].View = presentation(out[i].Resources, out[i].Runtime, s.now())
 		for _, reading := range evaluated.Readings {
 			if reading.Evidence.Key == vicidialdiscovery.Key {
 				ev := reading.Evidence
@@ -157,6 +159,7 @@ func (s *Server) consoleEvents(w http.ResponseWriter, r *http.Request) {
 		// Drop continuously advancing counters; persisted IDs/outcomes, eligibility
 		// and evaluated freshness still trigger reconciliation at state boundaries.
 		for i := range rows {
+			rows[i].View.Age = ""
 			rows[i].Runtime.Profile.LagSeconds = 0
 			for j := range rows[i].Runtime.Rows {
 				rows[i].Runtime.Rows[j].AgeSeconds = 0

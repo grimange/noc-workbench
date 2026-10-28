@@ -17,6 +17,7 @@ type dashboardData struct {
 	Query, Next, Previous string
 }
 type serverData struct {
+	View              consolePresentation
 	Detail            workspace.ServerDetail
 	Base, Inventory   string
 	EvidenceAvailable bool
@@ -29,6 +30,9 @@ type serverData struct {
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
 	d.Active = ""
+	if r.URL.Path == "/servers" {
+		d.Active = "servers"
+	}
 	raw := r.URL.Query().Get("q")
 	q, err := workspace.Query(raw)
 	if err != nil {
@@ -58,11 +62,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
 			return
 		}
 		if more {
-			d.Dashboard.Next = "/?q=" + url.QueryEscape(raw) + "&offset=" + strconv.Itoa(offset+25)
+			d.Dashboard.Next = r.URL.Path + "?q=" + url.QueryEscape(raw) + "&offset=" + strconv.Itoa(offset+25)
 		}
 	}
 	if offset > 0 {
-		d.Dashboard.Previous = "/?q=" + url.QueryEscape(raw) + "&offset=" + strconv.Itoa(offset-25)
+		d.Dashboard.Previous = r.URL.Path + "?q=" + url.QueryEscape(raw) + "&offset=" + strconv.Itoa(offset-25)
 	}
 	s.render(w, "home.html", d)
 }
@@ -71,7 +75,7 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	d.Active = ""
+	d.Active = "servers"
 	scope, err := (workspace.LocalOperatorPolicy{}).Scope(operatorPrincipal(), workspace.Search)
 	if err != nil {
 		http.Error(w, "Forbidden", 403)
@@ -120,6 +124,7 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d.Server.Resources = resources(in, d.Server.Result, d.Server.Runtime)
+		d.Server.View = presentation(d.Server.Resources, d.Server.Runtime, s.now())
 		filtered := d.Server.Result.Readings[:0]
 		for _, reading := range d.Server.Result.Readings {
 			if reading.Evidence.Key != vicidialdiscovery.Key && reading.Evidence.Key != services.Key {

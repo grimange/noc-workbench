@@ -18,7 +18,7 @@ unset operator_password
 make up
 ```
 
-Open **http://127.0.0.1:8080**. Sign in with the chosen password. The Dashboard lists active authorized servers with customer, primary endpoint, monitoring status, latest runtime attempt, last observation, freshness and a service summary. Search by server name, IP, hostname or customer; select a server to inspect persisted runtime services first, followed by historical VICIdial installation/roles. Process and systemd signals remain separate; failures preserve earlier observations and disabled monitoring does not present historical Running as current. Technical evidence and inventory settings remain in collapsed disclosures. These pages and their bounded SSE updates do not initiate collection. Service health remains Unknown unless established by the existing monitoring policies. Inventory management and monitoring deep links remain available. Workspace settings are at `/settings`. `/healthz` returns application DB readiness, never infrastructure/service health. No CDN is required. A small same-origin script reconciles persisted monitoring displays through the existing SSE delivery; normal navigation remains available without JavaScript.
+Open **http://127.0.0.1:8080**. Sign in with the chosen password. The Dashboard and `/servers` list authorized servers in a searchable, paginated monitoring table with customer, primary endpoint, current CPU, RAM and root-disk evidence, collection status and observation age. Search by server name, IP, hostname or customer; select a server to inspect persisted runtime services first, followed by historical VICIdial installation/roles. Process and systemd signals remain separate; failures preserve earlier observations and disabled monitoring does not present historical Running as current. Technical evidence and inventory settings remain in collapsed disclosures. These pages and their bounded SSE updates do not initiate collection. Service health remains Unknown unless established by the existing monitoring policies. Inventory management and monitoring deep links remain available. Workspace settings are at `/settings`. `/healthz` returns application DB readiness, never infrastructure/service health. No CDN is required. A small same-origin script reconciles persisted monitoring displays through the existing SSE delivery; normal navigation remains available without JavaScript.
 
 Save the generated DB password and operator hash in your own protected secret store before closing the shell. Reuse the same DB password on ordinary restarts: changing the Compose environment does not change credentials in an existing PostgreSQL volume. No default login exists. An ignored `.env` may hold `NOC_DB_PASSWORD` for Compose, but the Go application does **not** automatically read `.env`; export its configuration explicitly. Never commit that file.
 
@@ -585,3 +585,18 @@ Routine timestamps use Philippine time (PHT, UTC+08:00). Installation metadata
 freshness is labelled separately from runtime policy freshness. Restricted
 same-origin SSE notifications reconcile persisted HTML, including freshness and
 monitoring authorization changes; passive navigation never starts remote checks.
+
+### UI Foundation E1 (NW-38)
+
+The shared console uses a light theme by default, with a local dark-theme preference,
+global server search and Dashboard, Servers and Alerts navigation. Secondary
+administration remains under the collapsed Manage menu. Refresh Display reads
+persisted evidence only. Server Details presents valid current CPU, memory and
+storage gauges; missing, stale or paused measurements do not generate gauges.
+Resource measurements and All Filesystems retain original values and timestamps
+on demand. Services shows searchable systemd units; Processes shows sortable top
+CPU consumers and expandable memory/application observations. Scheduled Jobs,
+History and VICIdial have separate direct sections. Without JavaScript, all
+sections remain readable. Existing history views provide retained time series;
+embedded overview sparklines are deferred to Monitoring Console E2. No new
+collectors, permissions, schedules, database tables or remote access are added.

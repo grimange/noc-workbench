@@ -142,7 +142,7 @@ func TestIntegrationBaselineConsoleAutomatic(t *testing.T) {
 		}
 	}
 	dash := request(h, "GET", "/", nil, cookie)
-	if dash.Code != 200 || !strings.Contains(dash.Body.String(), "CPU: 25.0%") || !strings.Contains(dash.Body.String(), "512.0 MiB available") {
+	if dash.Code != 200 || !strings.Contains(dash.Body.String(), ">25.0%</td>") || !strings.Contains(dash.Body.String(), "512.0 MiB available") || !strings.Contains(dash.Body.String(), "10% · /") || !strings.Contains(dash.Body.String(), "0 failed units") {
 		t.Fatal(dash.Body.String())
 	}
 	consoleBrowser(t, h, cookie, path, true)

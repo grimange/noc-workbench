@@ -20,16 +20,22 @@ type filesystemRow struct {
 	At                                            time.Time
 }
 type resourceData struct {
-	Metrics                    []resourceMetric
-	Filesystems                []filesystemRow
-	CPU, Memory                []baseline.Process
-	Units                      []baseline.Unit
-	Jobs                       []baseline.Job
-	Status                     map[string]string
-	Current                    bool
-	At                         time.Time
-	State, CPUText, MemoryText string
-	Evidence                   collection.Evidence
+	ProcessState, UnitsState, JobsState string
+	UnitsAvailable                      bool
+	Gauges                              []resourceGauge
+	MemoryGauge                         resourceGauge
+	PrimaryFilesystems                  []filesystemRow
+	DiskText                            string
+	Metrics                             []resourceMetric
+	Filesystems                         []filesystemRow
+	CPU, Memory                         []baseline.Process
+	Units                               []baseline.Unit
+	Jobs                                []baseline.Job
+	Status                              map[string]string
+	Current                             bool
+	At                                  time.Time
+	State, CPUText, MemoryText          string
+	Evidence                            collection.Evidence
 }
 
 func bytesText(v uint64) string {
@@ -113,6 +119,10 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 	total, tok := readings["linux.mem.total_bytes\x00"]
 	avail, aok := readings["linux.mem.available_bytes\x00"]
 	if tok && aok && total.Evidence.RunID == avail.Evidence.RunID && total.Evidence.Value.Integer >= avail.Evidence.Value.Integer {
+		if state(total) == "Current" && state(avail) == "Current" && total.Evidence.Value.Integer > 0 {
+			used := total.Evidence.Value.Integer - avail.Evidence.Value.Integer
+			result.MemoryGauge = resourceGauge{"Memory", fmt.Sprintf("%.1f%%", 100*float64(used)/float64(total.Evidence.Value.Integer)), bytesText(used) + " / " + bytesText(total.Evidence.Value.Integer), "Current", 100 * float64(used) / float64(total.Evidence.Value.Integer), true}
+		}
 		result.Metrics = append(result.Metrics, resourceMetric{Name: "RAM used (total − available)", Value: bytesText(total.Evidence.Value.Integer - avail.Evidence.Value.Integer), State: state(avail), At: avail.Evidence.ObservedAt, Source: avail.Evidence.CommandID})
 	}
 	mounts := map[string]bool{}
@@ -129,7 +139,7 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 		row := filesystemRow{Mount: mount, Total: bytesText(r.Evidence.Value.Integer), State: state(r), At: r.Evidence.ObservedAt, Used: "Unknown", Available: "Unknown", Percent: "Unknown"}
 		for _, k := range []string{"used_bytes", "available_bytes", "utilization_percent"} {
 			v, ok := readings["linux.filesystem."+k+"\x00"+mount]
-			if !ok || v.Evidence.RunID != r.Evidence.RunID {
+			if !ok || v.Evidence.RunID != r.Evidence.RunID || state(v) != row.State {
 				continue
 			}
 			if k == "used_bytes" {
@@ -145,6 +155,8 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 		result.Filesystems = append(result.Filesystems, row)
 	}
 	sort.Slice(result.Filesystems, func(i, j int) bool { return result.Filesystems[i].Mount < result.Filesystems[j].Mount })
+	unitStates, jobStates := map[string]string{}, map[string]string{}
+	result.ProcessState = "Unknown — no process sample"
 	for _, r := range out.Readings {
 		if r.Evidence.RunID != result.Evidence.RunID || r.Quality != "valid" {
 			continue
@@ -152,19 +164,26 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 		b := []byte(r.Evidence.Value.Text)
 		switch r.Evidence.Key {
 		case baseline.Prefix + "processes":
-			json.Unmarshal(b, &result.CPU)
+			if json.Unmarshal(b, &result.CPU) == nil {
+				result.ProcessState = state(r)
+			}
 		case baseline.Prefix + "units":
 			var rows []baseline.Unit
 			if json.Unmarshal(b, &rows) == nil {
+				unitStates[r.Evidence.Resource] = state(r)
 				result.Units = append(result.Units, rows...)
 			}
 		case baseline.Prefix + "jobs":
 			var rows []baseline.Job
 			if json.Unmarshal(b, &rows) == nil {
+				jobStates[r.Evidence.Resource] = state(r)
 				result.Jobs = append(result.Jobs, rows...)
 			}
 		}
 	}
+	result.UnitsState = chunkState(unitStates, 32)
+	result.JobsState = chunkState(jobStates, 16)
+	result.UnitsAvailable = result.UnitsState == "Current"
 	result.Memory = append([]baseline.Process(nil), result.CPU...)
 	sort.Slice(result.CPU, func(i, j int) bool {
 		if result.CPU[i].CPU == result.CPU[j].CPU {
@@ -185,5 +204,27 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 		result.Memory = result.Memory[:10]
 	}
 	sort.Slice(result.Units, func(i, j int) bool { return result.Units[i].Name < result.Units[j].Name })
+	resourceGauges(&result)
 	return result
+}
+
+// Chunked snapshots are current only when every required page is current.
+func chunkState(states map[string]string, pages int) string {
+	if len(states) != pages {
+		return "Unknown — incomplete snapshot"
+	}
+	first := ""
+	for i := 0; i < pages; i++ {
+		v, ok := states[fmt.Sprintf("%02d", i)]
+		if !ok {
+			return "Unknown — incomplete snapshot"
+		}
+		if first == "" {
+			first = v
+		}
+		if v != first {
+			return "Unknown — mixed evidence freshness"
+		}
+	}
+	return first
 }

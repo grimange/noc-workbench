@@ -1,7 +1,7 @@
 {{define "head"}}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/app.js" defer></script>
 {{end}}
@@ -10,7 +10,8 @@
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="app-header">
   <a class="brand" href="/" aria-label="NOC Workbench home">{{template "brand"}}</a>
-  <div class="header-actions"><span class="operator-label">Local operator</span><form method="post" action="/logout" data-pending>
+  <form class="global-search" action="/servers" method="get" role="search"><label class="sr-only" for="global-server-search">Search servers globally</label><input id="global-server-search" name="q" maxlength="120" placeholder="Search servers by name, IP or customer"><button type="submit" class="button button-quiet" aria-label="Search servers globally">Search</button></form>
+  <div class="header-actions"><button type="button" class="button button-quiet" data-theme-toggle aria-label="Switch color theme">Dark theme</button><span class="operator-label">Local operator</span><form method="post" action="/logout" data-pending>
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <button class="button button-quiet" type="submit" data-pending-label="Signing out…">Sign out</button>
   </form></div>
@@ -18,15 +19,17 @@
 {{end}}
 {{define "app-nav"}}
 <nav class="app-nav" aria-label="Workspace navigation">
-  <p class="nav-label">Workspace</p>
- <form action="/workspace" method="get" class="nav-search"><label class="sr-only" for="nav-query">Search inventory</label><input id="nav-query" name="q" maxlength="120" placeholder="Search inventory…"><button class="button button-quiet" type="submit">Search</button></form>
-  <a class="nav-item" href="/" {{if eq .Active ""}}aria-current="page"{{end}}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 7h12M7 7v7"/></svg> Dashboard</a>
-  <a class="nav-item" href="/monitoring">Monitoring &amp; alerts</a>
-  <a class="nav-item" href="/scheduler" {{if eq .Active "scheduler"}}aria-current="page"{{end}}>Collection scheduler</a>
-  <a class="nav-item" href="/workspace" {{if eq .Active "workspace"}}aria-current="page"{{end}}>Search &amp; Quick Access</a>
-  <a class="nav-item" href="/customers" {{if eq .Active "customers"}}aria-current="page"{{end}}>Customers</a>
-  <a class="nav-item" href="/inventory/interchange" {{if eq .Active "interchange"}}aria-current="page"{{end}}>Import &amp; export</a>
-  <a class="nav-item" href="/settings"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M2 5h12M2 11h12"/><rect x="5" y="3" width="3" height="4" rx="1" fill="currentColor"/><rect x="9" y="9" width="3" height="4" rx="1" fill="currentColor"/></svg> Settings</a>
-  <div class="nav-footer"><span class="eyebrow">Built for investigation</span><p>Your infrastructure.<br>Your workspace.</p></div>
+  <p class="nav-label">Operations</p>
+  <a class="nav-item" href="/" {{if eq .Active ""}}aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg>Dashboard</a>
+  <a class="nav-item" href="/servers" {{if eq .Active "servers"}}aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v7H3z M3 14h18v7H3z M7 6h2 M7 17h2"/></svg>Servers</a>
+  <a class="nav-item" href="/alerts" {{if eq .Active "monitoring"}}aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5z M10 21h4"/></svg>Alerts</a>
+  <details class="manage-nav"><summary>Manage</summary>
+    <a class="nav-item" href="/customers" {{if eq .Active "customers"}}aria-current="page"{{end}}>Customers &amp; inventory</a>
+    <a class="nav-item" href="/scheduler" {{if eq .Active "scheduler"}}aria-current="page"{{end}}>Monitoring controls</a>
+    <a class="nav-item" href="/workspace" {{if eq .Active "workspace"}}aria-current="page"{{end}}>Quick Access</a>
+    <a class="nav-item" href="/inventory/interchange" {{if eq .Active "interchange"}}aria-current="page"{{end}}>Import &amp; export</a>
+    <a class="nav-item" href="/settings" {{if eq .Active "settings"}}aria-current="page"{{end}}>Settings</a>
+  </details>
+  <div class="nav-footer"><span class="eyebrow">NOC Workbench</span><p>Infrastructure monitoring</p></div>
 </nav>
 {{end}}

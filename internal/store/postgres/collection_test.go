@@ -16,7 +16,7 @@ import (
 	"noc-workbench/internal/workspace"
 )
 
-type historyExecutor struct{ failAll, partial, noisy, longMount bool }
+type historyExecutor struct{ failAll, partial, noisy, longMount, rootMount bool }
 
 func (e historyExecutor) Execute(_ context.Context, _ workspace.Principal, _ sshcli.Target, id string) (sshcli.Result, error) {
 	now := time.Now().UTC()
@@ -26,6 +26,9 @@ func (e historyExecutor) Execute(_ context.Context, _ workspace.Principal, _ ssh
 		return r, &sshcli.Failure{Category: r.Category}
 	}
 	data := map[string]string{"linux.identity.v1": "synthetic\n6.1\nx86_64\nNAME=\"Synthetic Linux\"\nVERSION_ID=1\n", "linux.uptime.v1": "123.456 12.34\n", "linux.load.v1": "0.10 1.25 2.00 1/123 99\nCPU_COUNT=4\n", "linux.memory.v1": "MemTotal: 1024 kB\nMemAvailable: 512 kB\nMemFree: 128 kB\n", "linux.filesystems.v1": "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/synthetic 1000 100 900 10% /mount with spaces\n"}
+	if e.rootMount {
+		data["linux.filesystems.v1"] = strings.ReplaceAll(data["linux.filesystems.v1"], "/mount with spaces", "/")
+	}
 	if e.noisy && id == "linux.filesystems.v1" {
 		data[id] += strings.Repeat("malformed filesystem row\n", 25)
 	}

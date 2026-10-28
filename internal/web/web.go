@@ -127,6 +127,7 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /{$}", s.home)
+	mux.HandleFunc("GET /servers", s.home)
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.HandleFunc("POST /settings", s.settings)
 	mux.HandleFunc("GET /settings", s.settingsPage)

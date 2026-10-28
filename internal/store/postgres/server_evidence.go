@@ -14,7 +14,7 @@ import (
 )
 
 // ServerEvidence reads at most one page in a fixed number of queries, in one
-// snapshot. It returns only runtime and installation evidence, never API data.
+// snapshot. It returns bounded monitoring and installation evidence, never API data.
 func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids []string, at time.Time) ([]health.Input, []connections.Record, error) {
 	if len(ids) > 25 || at.IsZero() {
 		return nil, nil, workspace.ErrDenied
@@ -75,7 +75,7 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 	if len(records) > 2500 {
 		return nil, nil, workspace.ErrLimit
 	}
-	rows, e = tx.Query(ctx, `SELECT DISTINCT ON(a.id,p.selector) a.id::text,p.id::text,p.revision,p.version,p.selector,p.ttl_seconds,p.rule,p.threshold,p.enabled,p.created_at,p.actor::text FROM asset a JOIN evaluation_policy p ON (p.asset_id=a.id OR p.asset_id IS NULL) WHERE a.id::text=ANY($1::text[]) AND p.selector IN ('linux.baseline','linux.baseline.status','linux.baseline.cpu_percent','linux.mem.available_bytes','linux.load','linux.memory','linux.filesystems','linux.services','linux.service.runtime','vicidial.discovery','vicidial.discovery.snapshot') AND p.created_at<=$2 ORDER BY a.id,p.selector,p.asset_id NULLS LAST,p.revision DESC LIMIT 276`, allowed, at)
+	rows, e = tx.Query(ctx, `SELECT DISTINCT ON(a.id,p.selector) a.id::text,p.id::text,p.revision,p.version,p.selector,p.ttl_seconds,p.rule,p.threshold,p.enabled,p.created_at,p.actor::text FROM asset a JOIN evaluation_policy p ON (p.asset_id=a.id OR p.asset_id IS NULL) WHERE a.id::text=ANY($1::text[]) AND p.selector IN ('linux.baseline','linux.baseline.status','linux.baseline.cpu_percent','linux.mem.available_bytes','linux.mem.total_bytes','linux.baseline.units','linux.filesystem.total_bytes','linux.filesystem.used_bytes','linux.filesystem.available_bytes','linux.filesystem.utilization_percent','linux.load','linux.memory','linux.filesystems','linux.services','linux.service.runtime','vicidial.discovery','vicidial.discovery.snapshot') AND p.created_at<=$2 ORDER BY a.id,p.selector,p.asset_id NULLS LAST,p.revision DESC LIMIT 426`, allowed, at)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -134,7 +134,7 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 			runIDs = append(runIDs, in.LatestAttempt.ID)
 		}
 	}
-	rows, e = tx.Query(ctx, `SELECT run_id::text,collector_id,outcome,transport_outcome FROM collector_result WHERE run_id::text=ANY($1::text[]) AND collector_id IN ('linux.services','linux.baseline','linux.memory')`, runIDs)
+	rows, e = tx.Query(ctx, `SELECT run_id::text,collector_id,outcome,transport_outcome FROM collector_result WHERE run_id::text=ANY($1::text[]) AND collector_id IN ('linux.services','linux.baseline','linux.memory','linux.filesystems')`, runIDs)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -155,7 +155,7 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 	if e != nil {
 		return nil, nil, e
 	}
-	rows, e = tx.Query(ctx, `SELECT DISTINCT ON(o.asset_id,o.key,o.resource_hash) o.id::text,o.run_id::text,o.asset_id::text,o.endpoint_id::text,o.profile_id::text,o.profile_revision,o.collector_id,o.collector_version,o.command_id,o.key,o.resource,o.kind,coalesce(o.text_value,''),coalesce(o.integer_value::text,''),coalesce(o.number_value,0),o.unit,o.transport,o.quality,o.observed_at,o.received_at,o.ttl_seconds FROM observation o JOIN collection_run r ON r.id=o.run_id WHERE o.asset_id::text=ANY($1::text[]) AND o.key IN ('linux.service.runtime','vicidial.discovery.snapshot','linux.baseline.status','linux.baseline.cpu_percent','linux.mem.available_bytes') AND o.observed_at<=$2 AND o.received_at<=$2 AND o.recorded_at<=$2 AND r.ended_at<=$2 AND r.evidence_recorded_at<=$2 ORDER BY o.asset_id,o.key,o.resource_hash,o.observed_at DESC,o.id DESC LIMIT 301`, allowed, at)
+	rows, e = tx.Query(ctx, `SELECT DISTINCT ON(o.asset_id,o.key,o.resource_hash) o.id::text,o.run_id::text,o.asset_id::text,o.endpoint_id::text,o.profile_id::text,o.profile_revision,o.collector_id,o.collector_version,o.command_id,o.key,o.resource,o.kind,coalesce(o.text_value,''),coalesce(o.integer_value::text,''),coalesce(o.number_value,0),o.unit,o.transport,o.quality,o.observed_at,o.received_at,o.ttl_seconds FROM observation o JOIN collection_run r ON r.id=o.run_id WHERE o.asset_id::text=ANY($1::text[]) AND (o.key IN ('linux.service.runtime','vicidial.discovery.snapshot','linux.baseline.status','linux.baseline.cpu_percent','linux.baseline.units','linux.mem.available_bytes','linux.mem.total_bytes') OR (o.resource='/' AND o.key IN ('linux.filesystem.total_bytes','linux.filesystem.used_bytes','linux.filesystem.available_bytes','linux.filesystem.utilization_percent'))) AND o.observed_at<=$2 AND o.received_at<=$2 AND o.recorded_at<=$2 AND r.ended_at<=$2 AND r.evidence_recorded_at<=$2 ORDER BY o.asset_id,o.key,o.resource_hash,o.observed_at DESC,o.id DESC LIMIT 1226`, allowed, at)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -179,7 +179,7 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 	if e != nil {
 		return nil, nil, e
 	}
-	if count > 300 {
+	if count > 1225 {
 		return nil, nil, workspace.ErrLimit
 	}
 	out := []health.Input{}

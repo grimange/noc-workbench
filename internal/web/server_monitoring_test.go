@@ -156,7 +156,7 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 	}
 	// Dashboard bulk reader must show the same persisted state without SSH.
 	dashboard := request(h, "GET", "/", nil, cookie)
-	for _, text := range []string{"Synthetic installation", "Monitoring enabled", "8 running", "Freshness: fresh", "Topology: Unknown", "PHT"} {
+	for _, text := range []string{"Synthetic installation", "Monitoring enabled", "Service issues", "Unknown — baseline evidence unavailable", "Topology: Unknown", "PHT"} {
 		if dashboard.Code != 200 || !strings.Contains(dashboard.Body.String(), text) {
 			t.Fatal("dashboard evidence", text, dashboard.Body.String())
 		}
@@ -177,7 +177,7 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 		t.Fatal("revoked credential presented current runtime", page.Body.String())
 	}
 	dashboard = request(h, "GET", "/", nil, cookie)
-	if dashboard.Code != 200 || strings.Contains(dashboard.Body.String(), "8 running") || exec.calls != 1 {
+	if dashboard.Code != 200 || !strings.Contains(dashboard.Body.String(), "Monitoring inactive") || exec.calls != 1 {
 		t.Fatal("revoked dashboard evidence", dashboard.Body.String())
 	}
 	must(os.WriteFile(lab.Catalog, catalog, 0600))

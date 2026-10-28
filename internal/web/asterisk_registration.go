@@ -171,7 +171,7 @@ func (s *Server) serverAsterisk(w http.ResponseWriter, r *http.Request) {
 	}
 	repo, ok := s.store.(workspace.ServerRepository)
 	authority, has := s.store.(interface {
-		SetIntegration(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, string, bool) error
+		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
 	})
 	if !ok || !has || s.options.Enrollment == nil || s.options.Discovery == nil || s.options.Scheduler == nil {
 		http.Error(w, "Asterisk monitoring unavailable", 503)
@@ -239,9 +239,8 @@ func (s *Server) serverAsterisk(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Existing profile has no capacity for registration snapshots", 409)
 			return
 		}
-		h := collection.HistoryScope{CustomerID: v.CustomerID, EnvironmentID: v.EnvironmentID, AssetID: v.ID}
-		if e = authority.SetIntegration(r.Context(), operatorPrincipal(), h, rec.Target(), "asterisk", true); e != nil {
-			s.inventoryFailure(w, d, e)
+		if e = authority.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk"); e != nil {
+			http.Error(w, "Standard Server Monitoring authorization required in Connection Settings", http.StatusForbidden)
 			return
 		}
 		run, e := s.options.Discovery.Collect(collection.WithRequest(r.Context(), collection.Request{Source: "operator", Collectors: []string{"asterisk.identity", ast.RegistrationCollector}}), operatorPrincipal(), rec.Target())

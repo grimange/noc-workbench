@@ -13,8 +13,12 @@ func authorizeBaseline(ctx context.Context, tx pgx.Tx, p workspace.Principal, r 
 	if p.ID != workspace.OperatorID || r.State != "connection_verified" || !r.Details.BaselineAuthorized {
 		return workspace.ErrDenied
 	}
-	for _, name := range []string{"baseline", "runtime_services"} {
-		_, e := tx.Exec(ctx, `INSERT INTO collection_integration(profile_id,customer_id,environment_id,asset_id,endpoint_id,integration,profile_revision,enabled,actor) VALUES($1,$2,$3,$4,$5,$6,$7,true,$8) ON CONFLICT(profile_id,integration) DO UPDATE SET profile_revision=excluded.profile_revision,enabled=true,actor=excluded.actor,revision=collection_integration.revision+1,updated_at=clock_timestamp()`, r.ID, r.CustomerID, r.EnvironmentID, r.AssetID, r.EndpointID, name, r.Revision, p.ID)
+	names := []string{"baseline", "runtime_services"}
+	if r.Details.StandardMonitoring {
+		names = append(names, "asterisk", "vicidial_discovery")
+	}
+	for _, name := range names {
+		e := grantMonitoring(ctx, tx, p, r, name, true)
 		if e != nil {
 			return e
 		}

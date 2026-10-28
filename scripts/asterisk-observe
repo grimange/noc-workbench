@@ -1,0 +1,29 @@
+#!/bin/sh
+# Optional root-owned gateway; installation requires explicit operator approval.
+# Only two fixed observation bundles; no caller-supplied CLI text or paths.
+set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
+unset ASTERISK_CONFIG AST_CONFIG_DIR ENV BASH_ENV CDPATH
+[ "$#" -eq 1 ] || exit 64
+case "$1" in identity|registrations) ;; *) exit 64 ;; esac
+# The root-owned timeout supervises the complete process group, including CLI
+# children, even when the SSH client disconnects. No independent remote daemon.
+exec /usr/bin/timeout -k 1 4 /bin/sh -s -- "$1" <<'BUNDLE'
+observe() {
+    /usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -rx "$1" 2>&1 || :
+}
+observe 'core show version'
+if [ "$1" = registrations ]; then
+    printf '\nNW_REGISTRATIONS_sip_peers\n'
+    observe 'sip show peers'
+    printf '\nNW_REGISTRATIONS_sip_registry\n'
+    observe 'sip show registry'
+    printf '\nNW_REGISTRATIONS_pjsip_endpoints\n'
+    observe 'pjsip show endpoints'
+    printf '\nNW_REGISTRATIONS_pjsip_contacts\n'
+    observe 'pjsip show contacts'
+    printf '\nNW_REGISTRATIONS_pjsip_registrations\n'
+    observe 'pjsip show registrations'
+    printf '\nNW_REGISTRATIONS_END\n'
+fi
+BUNDLE

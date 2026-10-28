@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/transport/sshcli"
@@ -15,6 +17,8 @@ type enrollmentData struct {
 	Endpoints  []inventory.Endpoint
 	Records    []connections.Record
 	References []string
+	Standard   map[string]bool
+	Helper     map[string]bool
 }
 
 func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +70,18 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "invalid revision", 400)
 				return
 			}
-			_, err = svc.Act(r.Context(), operatorPrincipal(), existing.EndpointID, existing.ID, revision, action, r.PostForm.Get("fingerprint"), r.PostForm.Get("evidence"))
+			if action == "standard" {
+				grant, yes := s.store.(interface {
+					SetStandardMonitoring(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, bool) error
+				})
+				if !yes || revision != existing.Revision || r.PostForm.Get("evidence") != "standard" {
+					err = connections.ErrInput
+				} else {
+					err = grant.SetStandardMonitoring(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes")
+				}
+			} else {
+				_, err = svc.Act(r.Context(), operatorPrincipal(), existing.EndpointID, existing.ID, revision, action, r.PostForm.Get("fingerprint"), r.PostForm.Get("evidence"))
+			}
 		}
 		if err == nil {
 			http.Redirect(w, r, d.Action+"?saved=1", http.StatusSeeOther)
@@ -100,6 +115,17 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.inventoryFailure(w, d, err)
 		return
+	}
+	d.Enrollment.Standard = map[string]bool{}
+	d.Enrollment.Helper = map[string]bool{}
+	if grant, yes := s.store.(interface {
+		StandardMonitoringAllowed(context.Context, workspace.Principal, sshcli.Target) error
+		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
+	}); yes {
+		for _, rec := range d.Enrollment.Records {
+			d.Enrollment.Standard[rec.ID] = grant.StandardMonitoringAllowed(r.Context(), operatorPrincipal(), rec.Target()) == nil
+			d.Enrollment.Helper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_helper") == nil
+		}
 	}
 	if r.URL.Query().Get("saved") == "1" {
 		d.Notice = "Enrollment action recorded."

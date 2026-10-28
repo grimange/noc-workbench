@@ -506,11 +506,15 @@ presentation are described below.
 
 ## Runtime service monitoring (NW-36 Slice B)
 
-New SSH enrollments explicitly authorize the baseline read-only monitoring profile
-as part of enrollment. Once host identity and connectivity are verified, the same
+New SSH enrollments explicitly authorize **Standard Server Monitoring** as part
+of enrollment: Linux resources, processes, services, readable schedules, supported
+VICIdial discovery and the reviewed read-only Asterisk catalog. Once host identity and connectivity are verified, the same
 transaction creates the persistent 60-second NW-011 schedule. Collection continues
 without a browser and after application restart. Existing enrollments retain their
-original permissions; a one-time baseline grant is available in SSH enrollment.
+original permissions; a one-time consolidated expansion is available in Connection
+Settings. Existing grants are reused without changing the enrollment revision.
+Parser-only updates do not require another grant; a changed endpoint, host identity
+or credential scope still invalidates authority.
 Maintenance pause/resume, global emergency stop and the shared five-asset admission
 limit remain authoritative. Separately approved optional collectors are preserved;
 a combined profile exceeding the existing ten-collector limit is rejected atomically.
@@ -603,21 +607,24 @@ collectors, permissions, schedules, database tables or remote access are added.
 
 Server Details → Services → **Asterisk monitoring** presents separately observed
 SIP peers, SIP outbound registry, PJSIP endpoints, contacts and outbound
-registrations. **Authorize registration monitoring** explicitly enables the
-existing Asterisk CLI authority for the verified SSH revision, verifies version
-and snapshot capability, and extends the existing baseline profile at a
+registrations. Authorize **Standard Server Monitoring** once in Connection
+Settings. **Verify and schedule snapshots** then reuses that authority, verifies
+version and snapshot capability, and extends the existing baseline profile at a
 60-second target interval. It does not clear maintenance, global pause or
-emergency-stop controls. This is the existing shared adapter grant, which also
-permits the fixed `core show channels count` and `module show like pjsip`
-collectors; the authorization form discloses that scope. Only registration
-snapshots are added to the schedule. Passive pages and SSE never execute
-collection.
+emergency-stop controls. The reviewed Asterisk catalog also includes the existing
+fixed `core show channels count` and `module show like pjsip` collectors; only
+registration snapshots are added to this profile. Passive pages and SSE never
+execute collection.
 
 The fixed snapshot commands are `sip show peers`, `sip show registry`,
 `pjsip show endpoints`, `pjsip show contacts`, and `pjsip show registrations`.
 Parsing supports Asterisk 18/20 output conventions with deterministic fixtures;
 actual deployment compatibility depends on successful authorized capability
-inspection. No sudo, remote configuration changes or AMI are used.
+inspection. Direct CLI access uses the existing SSH account without sudo. An
+administrator-installed fixed-command gateway is available when direct socket
+access is inappropriate; it requires a separate explicit checkbox within the
+consolidated grant. It is never selected as an automatic fallback after an error.
+No AMI or Asterisk configuration changes are performed by collection.
 
 Snapshots retain sanitized endpoint/AoR identities, host/contact locators,
 reported states, supported reachability/RTT, original timestamps and versioned
@@ -633,5 +640,18 @@ Unknown. Reachability and outbound registration validity remain separate.
 Unsupported commands have no fabricated zero counts. Disabled, stale,
 superseded or failed snapshots are labelled historical, and snapshot changes
 show observation-time brackets rather than exact event times. Detailed evidence
-is expandable. The SSH account must already have permission to use Asterisk's
-control socket; the application does not change remote permissions.
+is expandable, including the actual direct/gateway command identifier. Direct
+access requires permission to use Asterisk's control socket; the application does
+not change remote permissions.
+
+The optional `scripts/asterisk-observe` gateway accepts exactly `identity` or
+`registrations`, executes only the six fixed version/snapshot CLI commands, and
+has a four-second remote deadline in addition to SSH execution/output limits.
+It must be installed by an explicitly authorized administrator at the reviewed
+root-owned, non-writable path with exact argument-specific sudoers delegation.
+Do not grant general Asterisk CLI, shell, group or control-socket access. Gateway
+selection requires both the current Asterisk grant and its explicit gateway grant,
+rechecked at transport execution. The gateway cannot run the older channel/module
+commands. Migration 018 preserves existing grants and observation checks while
+adding only the two matching gateway provenance pairs and the consolidated grant
+audit operation. It grants no new authority during startup.

@@ -175,3 +175,30 @@ func TestCollectionBudgetIncludesAdmissionWait(t *testing.T) {
 	close(f.block)
 	wg.Wait()
 }
+
+type provenanceExecutor struct{ command string }
+
+func (x provenanceExecutor) Execute(_ context.Context, _ workspace.Principal, _ sshcli.Target, _ string) (sshcli.Result, error) {
+	at := time.Now().UTC()
+	return sshcli.Result{CommandID: x.command, StartedAt: at, EndedAt: at, Stdout: []byte("1 2")}, nil
+}
+func TestAlternateProvenanceIsExplicit(t *testing.T) {
+	r, e := collection.NewRegistry([]collection.Spec{{ID: "linux.uptime", Version: "1", CommandID: "linux.uptime.v1", AlternateCommandIDs: []string{"reviewed.helper.v1"}, Parse: linux.Uptime}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, id := range []string{"reviewed.helper.v1", "forged.command.v1"} {
+		run, e := r.Collect(context.Background(), provenanceExecutor{id}, workspace.Principal{}, sshcli.Target{}, []string{"linux.uptime"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		v := run.Results[0]
+		if id == "reviewed.helper.v1" {
+			if v.Outcome != "success" || v.CommandID != id || v.Observations[0].CommandID != id {
+				t.Fatal(v)
+			}
+		} else if len(v.Observations) != 0 || v.Outcome != "failed" {
+			t.Fatal("unreviewed provenance parsed", v)
+		}
+	}
+}

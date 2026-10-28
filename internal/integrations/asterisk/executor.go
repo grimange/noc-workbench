@@ -21,11 +21,33 @@ type Executor struct {
 
 func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.Target, id string) (sshcli.Result, error) {
 	if strings.HasPrefix(id, "asterisk.") {
-		if e.Authority == nil || e.Authority.IntegrationAllowed(ctx, p, t, "asterisk") != nil {
+		deny := func() (sshcli.Result, error) {
 			now := time.Now().UTC()
 			return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
 		}
-		ctx = sshcli.WithExecutionCheck(ctx, func(c context.Context) error { return e.Authority.IntegrationAllowed(c, p, t, "asterisk") })
+		if e.Authority == nil || e.Authority.IntegrationAllowed(ctx, p, t, "asterisk") != nil {
+			return deny()
+		}
+		helper := strings.Contains(id, ".helper.")
+		if id == "asterisk.identity.v1" || id == "asterisk.registrations.v1" {
+			helper = e.Authority.IntegrationAllowed(ctx, p, t, "asterisk_helper") == nil
+			if helper {
+				id = strings.TrimSuffix(id, ".v1") + ".helper.v1"
+			}
+		}
+		check := func(c context.Context) error {
+			if err := e.Authority.IntegrationAllowed(c, p, t, "asterisk"); err != nil {
+				return err
+			}
+			if helper {
+				return e.Authority.IntegrationAllowed(c, p, t, "asterisk_helper")
+			}
+			return nil
+		}
+		if check(ctx) != nil {
+			return deny()
+		}
+		ctx = sshcli.WithExecutionCheck(ctx, check)
 	}
 	return e.Next.Execute(ctx, p, t, id)
 }

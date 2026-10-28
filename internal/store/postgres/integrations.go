@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/jackc/pgx/v5"
 	"noc-workbench/internal/collection"
+	"noc-workbench/internal/connections"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 	"strings"
@@ -17,7 +18,7 @@ func (s *Store) IntegrationAllowed(ctx context.Context, p workspace.Principal, t
 	return integrationAllowed(ctx, s.pool, p, t, name)
 }
 func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, name string) error {
-	if p.ID != workspace.OperatorID || (name != "asterisk" && name != "vicidial_discovery" && name != "runtime_services" && name != "baseline") {
+	if p.ID != workspace.OperatorID || !monitoringIntegration(name) {
 		return workspace.ErrDenied
 	}
 	var yes bool
@@ -28,7 +29,7 @@ func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Pri
 	return nil
 }
 func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, name string, enabled bool) error {
-	if collectionAccess(p, h) != nil || (name != "asterisk" && name != "vicidial_discovery" && name != "runtime_services" && name != "baseline") || h.AssetID != t.AssetID {
+	if collectionAccess(p, h) != nil || !monitoringIntegration(name) || h.AssetID != t.AssetID {
 		return workspace.ErrDenied
 	}
 	r, e := s.Enrollment(ctx, t.EndpointID, t.ProfileID)
@@ -55,6 +56,86 @@ func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h col
 		return ErrUnavailable
 	}
 	return tx.Commit(ctx)
+}
+
+func monitoringIntegration(name string) bool {
+	return name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
+}
+
+// StandardMonitoringAllowed is a projection of the existing four scoped grants,
+// not a second permission system. Parser versions are deliberately not authority.
+func (s *Store) StandardMonitoringAllowed(ctx context.Context, p workspace.Principal, t sshcli.Target) error {
+	for _, name := range []string{"baseline", "runtime_services", "vicidial_discovery", "asterisk"} {
+		if e := s.IntegrationAllowed(ctx, p, t, name); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// SetStandardMonitoring explicitly expands the reviewed capability catalog for
+// one verified enrollment. It preserves its revision, trust, history and pauses.
+// The optional helper is separately disclosed execution scope, never inferred
+// from a failed CLI command or silently granted to existing enrollments.
+func (s *Store) SetStandardMonitoring(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper bool) error {
+	if collectionAccess(p, h) != nil || h.AssetID != t.AssetID {
+		return workspace.ErrDenied
+	}
+	r, e := s.Enrollment(ctx, t.EndpointID, t.ProfileID)
+	if e != nil || r.Target() != t || r.State != "connection_verified" || r.CustomerID != h.CustomerID || r.EnvironmentID != h.EnvironmentID {
+		return workspace.ErrDenied
+	}
+	tx, e := s.pool.Begin(ctx)
+	if e != nil {
+		return ErrUnavailable
+	}
+	defer tx.Rollback(context.Background())
+	if e = lockEnrollmentOwners(ctx, tx, r); e != nil {
+		return e
+	}
+	var current int64
+	if e = tx.QueryRow(ctx, `SELECT revision FROM connection_profile WHERE id=$1 AND state='connection_verified' FOR UPDATE`, r.ID).Scan(&current); e != nil || current != t.ProfileVersion {
+		return workspace.ErrDenied
+	}
+	for _, name := range []string{"baseline", "runtime_services", "vicidial_discovery", "asterisk"} {
+		if e = grantMonitoring(ctx, tx, p, r, name, true); e != nil {
+			return e
+		}
+	}
+	if helper {
+		if e = grantMonitoring(ctx, tx, p, r, "asterisk_helper", true); e != nil {
+			return e
+		}
+	} else {
+		if _, e = tx.Exec(ctx, `UPDATE collection_integration SET enabled=false,revision=revision+1,actor=$2,updated_at=clock_timestamp() WHERE profile_id=$1 AND integration='asterisk_helper' AND enabled`, r.ID, p.ID); e != nil {
+			return ErrUnavailable
+		}
+	}
+	// Reuse an existing active baseline profile without resetting its next due,
+	// collector selection, revision or independent profile pause.
+	var scheduled bool
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM collection_schedule WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND enabled AND authorized AND collector_ids @> ARRAY['linux.baseline','linux.services'])`, r.AssetID, r.ID, r.Revision).Scan(&scheduled); e != nil {
+		return ErrUnavailable
+	}
+	if !scheduled {
+		r.Details.BaselineAuthorized = true
+		if e = authorizeBaseline(ctx, tx, p, r); e != nil {
+			return e
+		}
+	}
+	_, e = tx.Exec(ctx, `INSERT INTO connection_audit(profile_id,principal_id,revision,operation,state,category) VALUES($1,$2,$3,'standard',$4,$5)`, r.ID, p.ID, r.Revision, r.State, map[bool]string{true: "standard_helper", false: "standard_local_cli"}[helper])
+	if e != nil {
+		return ErrUnavailable
+	}
+	return tx.Commit(ctx)
+}
+
+func grantMonitoring(ctx context.Context, tx pgx.Tx, p workspace.Principal, r connections.Record, name string, enabled bool) error {
+	_, e := tx.Exec(ctx, `INSERT INTO collection_integration(profile_id,customer_id,environment_id,asset_id,endpoint_id,integration,profile_revision,enabled,actor) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(profile_id,integration) DO UPDATE SET profile_revision=excluded.profile_revision,enabled=excluded.enabled,actor=excluded.actor,revision=collection_integration.revision+1,updated_at=clock_timestamp() WHERE collection_integration.profile_revision<>excluded.profile_revision OR collection_integration.enabled<>excluded.enabled`, r.ID, r.CustomerID, r.EnvironmentID, r.AssetID, r.EndpointID, name, r.Revision, enabled, p.ID)
+	if e != nil {
+		return ErrUnavailable
+	}
+	return nil
 }
 func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {

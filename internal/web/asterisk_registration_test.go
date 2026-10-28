@@ -158,6 +158,30 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 		t.Fatal("pause changed")
 	}
 	must(sched.Control(ctx, p, scheduler.Control{Kind: "asset", ID: rec.AssetID, Paused: false}))
+	if response := request(h, "POST", path+"/asterisk", form, cookie); response.Code != 403 || exec.calls.Load() != 0 {
+		t.Fatal("missing grant accepted", response.Code)
+	}
+	connection := path + "/connection"
+	grant := url.Values{"csrf": {token}, "action": {"standard"}, "evidence": {"standard"}, "profile": {rec.ID}, "endpoint": {rec.EndpointID}, "revision": {fmt.Sprint(rec.Revision)}}
+	if request(h, "POST", connection, nil).Code != 401 || request(h, "POST", connection, nil, cookie).Code != 403 {
+		t.Fatal("standard grant authentication/CSRF")
+	}
+	grant.Set("revision", "0")
+	if response := request(h, "POST", connection, grant, cookie); response.Code != 409 {
+		t.Fatal("stale standard grant", response.Code)
+	}
+	grant.Set("revision", fmt.Sprint(rec.Revision))
+	grant.Set("profile", workspace.OperatorID)
+	if response := request(h, "POST", connection, grant, cookie); response.Code != 404 {
+		t.Fatal("foreign standard enrollment", response.Code)
+	}
+	grant.Set("profile", rec.ID)
+	if db.IntegrationAllowed(ctx, p, rec.Target(), "asterisk") == nil || exec.calls.Load() != 0 {
+		t.Fatal("rejected standard POST expanded authority")
+	}
+	if response := request(h, "POST", connection, grant, cookie); response.Code != 303 {
+		t.Fatal("standard grant", response.Code, response.Body.String())
+	}
 	response := request(h, "POST", path+"/asterisk", form, cookie)
 	if response.Code != 303 || exec.calls.Load() != 2 {
 		t.Fatal("authorization", response.Code, response.Body.String())

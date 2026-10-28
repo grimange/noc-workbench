@@ -3,7 +3,7 @@
 <h2>Asterisk monitoring</h2>
 <p><strong>{{.Server.Asterisk.Status}}</strong></p>
 {{if .Server.Asterisk.AttemptAt.IsZero}}{{else}}<p>Last attempt: {{localTime .Server.Asterisk.AttemptAt}} · {{.Server.Asterisk.Outcome}}{{with .Server.Asterisk.Diagnostic}} · {{.}}{{end}}</p>{{end}}
-{{if not .Server.Asterisk.Authorized}}<p>Authorize read-only Asterisk CLI snapshots using the verified connection below. The SSH account must have access to the Asterisk control socket.</p>{{end}}
+{{if not .Server.Asterisk.Authorized}}<p><a href="/servers/{{.Server.Detail.ID}}/connection">Authorize Standard Server Monitoring</a> for this verified connection. Remote Asterisk observation access is also required.</p>{{end}}
 <p class="muted">Snapshot counts describe observed objects. Contact presence, registration validity and reachability are separate signals; polling does not record every registration attempt.</p>
 {{range .Server.Asterisk.Families}}
 <details {{if .Snapshot.Count}}open{{end}}><summary>{{.Name}} — {{.State}}{{if eq .Snapshot.Status "supported"}} · {{.Snapshot.Count}} observed{{end}}</summary>
@@ -13,13 +13,14 @@
 {{range .Snapshot.Rows}}<tr><td>{{.ID}}</td><td>{{.Technology}}</td><td>{{with .AOR}}{{.}}<br>{{end}}{{with .Address}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Registration}}</td><td>{{.Reachability}}{{with .RTT}} · {{.}} ms{{end}}</td></tr>{{else}}<tr><td colspan="5">Successful snapshot — no objects reported.</td></tr>{{end}}
 </tbody></table></div>{{else if eq .State "Unsupported"}}<p>This CLI command is unavailable on the observed server.</p>{{else}}<p>No successful supported snapshot available.</p>{{end}}
 {{if .Changes}}<details><summary>Changes between polling snapshots</summary><p>{{localTime .PreviousAt}} → {{localTime .Evidence.ObservedAt}}. Exact remote event time is unknown.</p><ul>{{range .Changes}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
-{{if .Evidence.ID}}<details><summary>Technical registration evidence</summary><p>{{.Command}} · Asterisk {{.Snapshot.Version}} · {{.Evidence.CollectorID}} v{{.Evidence.CollectorVersion}}</p><p>Observation {{.Evidence.ID}} · run {{.Evidence.RunID}} · profile {{.Evidence.ProfileID}} revision {{.Evidence.ProfileVersion}}</p><p>Observed UTC {{utcTime .Evidence.ObservedAt}} · received UTC {{utcTime .Evidence.ReceivedAt}}</p><p>PJSIP CLI contact addresses can be truncated by Asterisk. URI parameters, authentication objects and passwords are omitted. Contact type and registration expiry are not established by these summaries.</p></details>{{end}}
+{{if .Evidence.ID}}<details><summary>Technical registration evidence</summary><p>{{.Command}} · Asterisk {{.Snapshot.Version}} · {{.Evidence.CollectorID}} v{{.Evidence.CollectorVersion}} · {{.Evidence.CommandID}}</p><p>Observation {{.Evidence.ID}} · run {{.Evidence.RunID}} · profile {{.Evidence.ProfileID}} revision {{.Evidence.ProfileVersion}}</p><p>Observed UTC {{utcTime .Evidence.ObservedAt}} · received UTC {{utcTime .Evidence.ReceivedAt}}</p><p>PJSIP CLI contact addresses can be truncated by Asterisk. URI parameters, authentication objects and passwords are omitted. Contact type and registration expiry are not established by these summaries.</p></details>{{end}}
 </details>
 {{end}}
-<details><summary>Authorize registration monitoring</summary><p>Uses the existing shared read-only Asterisk adapter grant: the five SIP/PJSIP snapshot commands and version inspection, plus the existing core show channels count and module show like pjsip commands. Only registration snapshots are added to the schedule. Existing monitoring and maintenance controls remain authoritative. No configuration changes are made.</p>
+{{if .Server.Asterisk.Authorized}}
+<details><summary>Verify and schedule registration snapshots</summary><p>Reuses the existing monitoring grant. Verifies supported capabilities before adding snapshots to the existing 60-second profile. Maintenance controls remain authoritative.</p>
 {{range .Enrollment.Records}}{{if eq .State "connection_verified"}}
-<form method="post" action="/servers/{{$.Server.Detail.ID}}/asterisk"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="profile" value="{{.ID}}"><input type="hidden" name="endpoint" value="{{.EndpointID}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="schedule_revision" value="{{$.Server.Runtime.Profile.Revision}}"><label><input type="checkbox" name="authorize" value="yes" required> Authorize the shared read-only Asterisk adapter and schedule registration snapshots every 60 seconds for this verified SSH connection</label><button type="submit">Authorize and verify snapshots</button></form>
-{{end}}{{else}}<p>Complete <a href="/servers/{{.Server.Detail.ID}}/connection">SSH enrollment</a> first.</p>{{end}}
-</details>
+<form method="post" action="/servers/{{$.Server.Detail.ID}}/asterisk"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="profile" value="{{.ID}}"><input type="hidden" name="endpoint" value="{{.EndpointID}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="schedule_revision" value="{{$.Server.Runtime.Profile.Revision}}"><input type="hidden" name="authorize" value="yes"><button type="submit">Verify and schedule snapshots</button></form>
+{{end}}{{end}}
+</details>{{end}}
 </section>
 {{end}}

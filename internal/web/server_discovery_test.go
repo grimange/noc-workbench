@@ -67,7 +67,7 @@ func TestIntegrationServerDiscoveryHTTP(t *testing.T) {
 		for _, action := range []string{"submit", "authorize", "inspect", "approve", "verify"} {
 			reason := "Independent synthetic lab key"
 			if action == "authorize" {
-				reason = "authorized"
+				reason = "standard"
 			}
 			rec, e = enroll.Act(ctx, p, ep.ID, rec.ID, rec.Revision, action, lab.Fingerprint, reason)
 			must(e)

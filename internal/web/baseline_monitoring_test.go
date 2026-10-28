@@ -86,12 +86,16 @@ func TestIntegrationBaselineConsoleAutomatic(t *testing.T) {
 		for _, action := range []string{"submit", "authorize", "inspect", "approve", "verify"} {
 			reason := "Independent synthetic key"
 			if action == "authorize" {
-				reason = "baseline"
+				reason = "standard"
 			}
 			rec, e = enroll.Act(ctx, p, ep.ID, rec.ID, rec.Revision, action, lab.Fingerprint, reason)
 			must(e)
 		}
 	})
+	must(db.StandardMonitoringAllowed(ctx, p, rec.Target()))
+	if db.IntegrationAllowed(ctx, p, rec.Target(), "asterisk_helper") == nil {
+		t.Fatal("new standard enrollment implicitly authorized helper")
+	}
 	// Verification creates the schedule without any browser or manual enable call.
 	snap, e := sched.Status(ctx, p)
 	must(e)

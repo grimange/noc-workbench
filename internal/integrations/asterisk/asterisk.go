@@ -14,8 +14,8 @@ import (
 
 func Specs() []collection.Spec {
 	return []collection.Spec{
-		{ID: RegistrationCollector, Version: "1", CommandID: "asterisk.registrations.v1", Parse: Registrations, Optional: true},
-		{ID: "asterisk.identity", Version: "1", CommandID: "asterisk.identity.v1", Parse: Identity, Optional: true},
+		{ID: RegistrationCollector, Version: "1", CommandID: "asterisk.registrations.v1", AlternateCommandIDs: []string{"asterisk.registrations.helper.v1"}, Parse: Registrations, Optional: true},
+		{ID: "asterisk.identity", Version: "1", CommandID: "asterisk.identity.v1", AlternateCommandIDs: []string{"asterisk.identity.helper.v1"}, Parse: Identity, Optional: true},
 		{ID: "asterisk.channels", Version: "1", CommandID: "asterisk.channels.v1", Parse: Channels, Optional: true},
 		{ID: "asterisk.modules", Version: "1", CommandID: "asterisk.modules.v1", Parse: Modules, Optional: true},
 		{ID: "asterisk.pjsip", Version: "1", CommandID: "asterisk.pjsip.v1", Parse: PJSIP, Optional: true},

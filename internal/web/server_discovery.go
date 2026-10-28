@@ -20,7 +20,7 @@ func (s *Server) serverDiscovery(w http.ResponseWriter, r *http.Request) {
 	}
 	repo, ok := s.store.(workspace.ServerRepository)
 	authority, has := s.store.(interface {
-		SetIntegration(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, string, bool) error
+		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
 	})
 	if !ok || !has || s.options.Enrollment == nil || s.options.Discovery == nil {
 		http.Error(w, "Discovery unavailable", 503)
@@ -54,9 +54,8 @@ func (s *Server) serverDiscovery(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Verified SSH enrollment changed or is unavailable", 409)
 			return
 		}
-		h := collection.HistoryScope{CustomerID: v.CustomerID, EnvironmentID: v.EnvironmentID, AssetID: v.ID}
-		if err = authority.SetIntegration(r.Context(), operatorPrincipal(), h, rec.Target(), "vicidial_discovery", true); err != nil {
-			s.inventoryFailure(w, d, err)
+		if err = authority.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "vicidial_discovery"); err != nil {
+			http.Error(w, "Standard Server Monitoring authorization required in Connection Settings", http.StatusForbidden)
 			return
 		}
 		_, err = s.options.Discovery.Collect(collection.WithRequest(r.Context(), collection.Request{Source: "operator", Collectors: []string{vicidialdiscovery.Collector}}), operatorPrincipal(), rec.Target())

@@ -58,8 +58,10 @@ type Run struct {
 type Parser func([]byte) ([]Observation, []Diagnostic)
 type Spec struct {
 	ID, Version, CommandID string
-	Parse                  Parser
-	Optional               bool
+	// AlternateCommandIDs are reviewed transports for the same parser contract.
+	AlternateCommandIDs []string
+	Parse               Parser
+	Optional            bool
 }
 type Registry struct{ specs []Spec }
 
@@ -127,7 +129,21 @@ func (r *Registry) Collect(ctx context.Context, e Executor, p workspace.Principa
 	}
 	for _, s := range specs {
 		raw, err := e.Execute(ctx, p, t, s.CommandID)
-		result := Result{CollectorID: s.ID, Version: s.Version, CommandID: s.CommandID, StartedAt: raw.StartedAt, EndedAt: raw.EndedAt, Outcome: "success", TransportOutcome: "success"}
+		commandID := s.CommandID
+		if raw.CommandID != "" && raw.CommandID != commandID {
+			allowed := false
+			for _, alternate := range s.AlternateCommandIDs {
+				if raw.CommandID == alternate {
+					allowed = true
+				}
+			}
+			if allowed {
+				commandID = raw.CommandID
+			} else {
+				err = &sshcli.Failure{Category: sshcli.Unsupported}
+			}
+		}
+		result := Result{CollectorID: s.ID, Version: s.Version, CommandID: commandID, StartedAt: raw.StartedAt, EndedAt: raw.EndedAt, Outcome: "success", TransportOutcome: "success"}
 		if err != nil {
 			code := string(sshcli.Internal)
 			var f *sshcli.Failure
@@ -163,7 +179,7 @@ func (r *Registry) Collect(ctx context.Context, e Executor, p workspace.Principa
 			o.ProfileVersion = t.ProfileVersion
 			o.CollectorID = s.ID
 			o.CollectorVersion = s.Version
-			o.CommandID = s.CommandID
+			o.CommandID = commandID
 			o.Transport = "ssh"
 			o.Quality = "valid"
 			o.ObservedAt = raw.StartedAt

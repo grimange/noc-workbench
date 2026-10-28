@@ -15,6 +15,8 @@ import (
 type dashboardData struct {
 	Servers               []consoleServer
 	Query, Next, Previous string
+	Filter, Sort          string
+	Counts                fleetCounts
 }
 type serverData struct {
 	View              consolePresentation
@@ -50,23 +52,29 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
 		return
 	}
 	d.Dashboard.Query = raw
-	if repo, ok := s.store.(workspace.ServerRepository); ok {
-		var more bool
-		var servers []workspace.Server
-		servers, more, err = repo.Servers(r.Context(), scope, q, offset)
-		if err == nil {
-			d.Dashboard.Servers, err = s.consoleServers(r, scope, servers)
-		}
-		if err != nil {
-			s.inventoryFailure(w, d, err)
+	if !validFleetOptions(r) {
+		http.Error(w, "Invalid filter or sort", 400)
+		return
+	}
+	d.Dashboard.Filter, d.Dashboard.Sort = r.URL.Query().Get("availability"), r.URL.Query().Get("sort")
+	pageURL := func(offset int) string {
+		v := url.Values{"q": {raw}, "availability": {d.Dashboard.Filter}, "sort": {d.Dashboard.Sort}, "offset": {strconv.Itoa(offset)}}
+		return r.URL.Path + "?" + v.Encode()
+	}
+	if _, ok := s.store.(workspace.ServerRepository); ok {
+		rows, e := s.fleet(r, scope, q)
+		if e != nil {
+			s.inventoryFailure(w, d, e)
 			return
 		}
+		var more bool
+		d.Dashboard.Servers, d.Dashboard.Counts, more = fleetPage(rows, d.Dashboard.Filter, d.Dashboard.Sort, offset)
 		if more {
-			d.Dashboard.Next = r.URL.Path + "?q=" + url.QueryEscape(raw) + "&offset=" + strconv.Itoa(offset+25)
+			d.Dashboard.Next = pageURL(offset + 25)
 		}
 	}
 	if offset > 0 {
-		d.Dashboard.Previous = r.URL.Path + "?q=" + url.QueryEscape(raw) + "&offset=" + strconv.Itoa(offset-25)
+		d.Dashboard.Previous = pageURL(offset - 25)
 	}
 	s.render(w, "home.html", d)
 }
@@ -124,7 +132,14 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d.Server.Resources = resources(in, d.Server.Result, d.Server.Runtime)
-		d.Server.View = presentation(d.Server.Resources, d.Server.Runtime, s.now())
+		rows, err := s.consoleServers(r, scope, []workspace.Server{v.Server})
+		if err != nil {
+			s.inventoryFailure(w, d, err)
+			return
+		}
+		if len(rows) > 0 {
+			d.Server.View = rows[0].View
+		}
 		filtered := d.Server.Result.Readings[:0]
 		for _, reading := range d.Server.Result.Readings {
 			if reading.Evidence.Key != vicidialdiscovery.Key && reading.Evidence.Key != services.Key {

@@ -13,7 +13,11 @@ type resourceGauge struct {
 	Percent                     float64
 	Valid                       bool
 }
-type consolePresentation struct{ Availability, Tone, Issues, Age string }
+type consolePresentation struct {
+	Availability, Tone, Issues, Age, Reason, Monitoring string
+	Attention                                           int
+	Checked                                             time.Time
+}
 
 // Presentation never promotes a retained value to current evidence.
 func resourceGauges(d *resourceData) {
@@ -26,13 +30,19 @@ func resourceGauges(d *resourceData) {
 			}
 		}
 	}
+	for _, m := range d.Metrics {
+		if m.Name == "Load · 1 minute" && m.State == "Current" {
+			d.Gauges[0].Detail += " · 1m load " + m.Value
+		}
+	}
 	// Numeric memory ratios are prepared from same-run validated readings below.
 	if d.MemoryGauge.Valid {
 		d.Gauges[1] = d.MemoryGauge
+		d.MemoryText = d.MemoryGauge.Value + " · " + d.MemoryText
 	}
 	d.DiskText = "Unknown"
 	for _, f := range d.Filesystems {
-		if f.Mount != "/" && technicalMount(f.Mount) {
+		if f.Mount != "/" && (f.Technical || technicalMount(f.Mount)) {
 			continue
 		}
 		d.PrimaryFilesystems = append(d.PrimaryFilesystems, f)
@@ -40,7 +50,7 @@ func resourceGauges(d *resourceData) {
 			d.Gauges[2] = resourceGauge{Label: "Storage", Value: "Unknown", Detail: f.Mount + " · " + f.State, State: f.State}
 			v, e := strconv.ParseFloat(strings.TrimSuffix(f.Percent, "%"), 64)
 			if f.State == "Current" && e == nil && v >= 0 && v <= 100 {
-				d.Gauges[2] = resourceGauge{"Storage", f.Percent, f.Mount + " · " + f.Available + " free", "Current", v, true}
+				d.Gauges[2] = resourceGauge{"Storage", f.Percent, f.Mount + " · " + f.Used + " / " + f.Total + " · " + f.Available + " available", "Current", v, true}
 				d.DiskText = f.Percent + " · " + f.Mount
 			}
 			if f.Mount == "/" {
@@ -55,7 +65,7 @@ func resourceGauges(d *resourceData) {
 	}
 }
 func technicalMount(m string) bool {
-	for _, p := range []string{"/proc", "/sys", "/dev", "/run", "/tmp", "/snap"} {
+	for _, p := range []string{"/proc", "/sys", "/dev", "/run", "/snap"} {
 		if m == p || strings.HasPrefix(m, p+"/") {
 			return true
 		}
@@ -63,35 +73,16 @@ func technicalMount(m string) bool {
 	return false
 }
 func presentation(r resourceData, d runtimeData, at time.Time) consolePresentation {
-	v := consolePresentation{Availability: "Unknown", Tone: "neutral", Issues: "Unknown", Age: "No observation"}
-	if !d.LastObservation.IsZero() {
-		age := at.Sub(d.LastObservation)
-		if age < 0 {
-			age = 0
-		}
-		switch {
-		case age < time.Minute:
-			v.Age = "<1 min ago"
-		case age < time.Hour:
-			v.Age = fmt.Sprintf("%d min ago", int(age.Minutes()))
-		case age < 24*time.Hour:
-			v.Age = fmt.Sprintf("%d hr ago", int(age.Hours()))
-		default:
-			v.Age = fmt.Sprintf("%d d ago", int(age.Hours()/24))
-		}
+	v := consolePresentation{Availability: "Unknown", Tone: "neutral", Issues: "Unknown", Age: "No completed check"}
+	v.Availability, v.Tone, v.Reason, v.Attention, v.Checked = availability(d, at)
+	v.Monitoring = "Monitoring disabled — no current readings."
+	if d.Paused {
+		v.Monitoring = "Monitoring paused — no current readings."
+	} else if d.Enabled {
+		v.Monitoring = fmt.Sprintf("Background monitoring · %d-second target", d.Profile.Interval)
 	}
-	switch {
-	case !d.Enabled:
-		v.Availability = "Monitoring inactive"
-	case d.Outcome != "" && d.Outcome != "success" && d.Outcome != "Not attempted":
-		v.Availability = "Collection " + d.Outcome
-		v.Tone = "warning"
-	case r.Current:
-		v.Availability = "Observed"
-		v.Tone = "observed"
-	case strings.Contains(r.State, "Stale"):
-		v.Availability = "Stale evidence"
-		v.Tone = "warning"
+	if !v.Checked.IsZero() {
+		v.Age = observationAge(at, v.Checked)
 	}
 	if r.Current && r.UnitsAvailable && r.Status["units_status"] == "observed" {
 		n := 0
@@ -101,6 +92,17 @@ func presentation(r resourceData, d runtimeData, at time.Time) consolePresentati
 			}
 		}
 		v.Issues = fmt.Sprintf("%d failed units", n)
+		if n > 0 && v.Attention < 2 {
+			v.Attention = 2
+		}
 	}
 	return v
+}
+
+func transientFilesystem(source string) bool {
+	switch source {
+	case "tmpfs", "devtmpfs", "proc", "sysfs", "cgroup", "cgroup2", "securityfs", "pstore", "debugfs", "tracefs", "mqueue", "hugetlbfs", "configfs", "fusectl":
+		return true
+	}
+	return false
 }

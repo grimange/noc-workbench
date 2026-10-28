@@ -181,7 +181,7 @@ func TestIntegrationRuntimeServices(t *testing.T) {
 	must(e)
 	detail, e := db.EvaluationEvidence(ctx, p, h, time.Now().UTC())
 	must(e)
-	if bulk[0].Trusted || detail.Trusted || len(bulk[0].Evidence) != 10 {
+	if bulk[0].Trusted || detail.Trusted || len(bulk[0].Evidence) != 11 {
 		t.Fatal("two-profile trust mismatch")
 	}
 	_, e = db.pool.Exec(ctx, `DELETE FROM connection_profile WHERE id=$1`, pendingID)

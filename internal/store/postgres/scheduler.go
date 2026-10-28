@@ -50,8 +50,8 @@ func (s *Store) Schedules(ctx context.Context, actor workspace.Principal) (sched
 	}
 	rows, e := s.pool.Query(ctx, `SELECT `+scheduleColumns+`,coalesce((SELECT min(m.cluster_id::text) FROM cluster_membership m WHERE m.asset_id=s.asset_id),''),
  (s.paused OR EXISTS(SELECT 1 FROM schedule_pause p WHERE p.customer_id=s.customer_id OR p.asset_id=s.asset_id OR p.cluster_id IN(SELECT cluster_id FROM cluster_membership WHERE asset_id=s.asset_id))),
- (c.status='active' AND e.status='active' AND a.lifecycle='active' AND ep.status='active' AND cp.state='connection_verified' AND cp.revision=s.profile_revision AND ep.updated_at=s.endpoint_revision AND (NOT EXISTS(SELECT 1 FROM unnest(s.collector_ids) cid WHERE cid LIKE 'asterisk.%') OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='asterisk' AND i.enabled AND i.profile_revision=s.profile_revision)) AND (NOT ('linux.baseline'=ANY(s.collector_ids)) OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='baseline' AND i.enabled AND i.profile_revision=s.profile_revision)) AND (NOT ('linux.services'=ANY(s.collector_ids)) OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='runtime_services' AND i.enabled AND i.profile_revision=s.profile_revision)) AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=s.profile_id) AND NOT EXISTS(SELECT 1 FROM cluster_membership m JOIN cluster cl ON cl.id=m.cluster_id WHERE m.asset_id=s.asset_id AND cl.lifecycle<>'active'))
- ,ARRAY(SELECT cluster_id::text FROM cluster_membership WHERE asset_id=s.asset_id ORDER BY cluster_id LIMIT 1001) FROM collection_schedule s JOIN customer c ON c.id=s.customer_id JOIN environment e ON e.id=s.environment_id JOIN asset a ON a.id=s.asset_id JOIN asset_endpoint ep ON ep.id=s.endpoint_id JOIN connection_profile cp ON cp.id=s.profile_id ORDER BY s.customer_id,s.asset_id LIMIT 1001`)
+ (c.status='active' AND e.status='active' AND a.lifecycle='active' AND ep.status='active' AND cp.state='connection_verified' AND cp.revision=s.profile_revision AND ep.updated_at=s.endpoint_revision AND (NOT EXISTS(SELECT 1 FROM unnest(s.collector_ids) cid WHERE cid LIKE 'asterisk.%') OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='asterisk' AND i.enabled AND i.profile_revision=s.profile_revision)) AND (NOT ('linux.baseline'=ANY(s.collector_ids)) OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='baseline' AND i.enabled AND i.profile_revision=s.profile_revision)) AND (NOT ('linux.services'=ANY(s.collector_ids)) OR EXISTS(SELECT 1 FROM collection_integration i WHERE i.profile_id=s.profile_id AND i.integration='runtime_services' AND i.enabled AND i.profile_revision=s.profile_revision)) AND NOT EXISTS(SELECT 1 FROM cluster_membership m JOIN cluster cl ON cl.id=m.cluster_id WHERE m.asset_id=s.asset_id AND cl.lifecycle<>'active'))
+ ,EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=s.profile_id),ARRAY(SELECT cluster_id::text FROM cluster_membership WHERE asset_id=s.asset_id ORDER BY cluster_id LIMIT 1001) FROM collection_schedule s JOIN customer c ON c.id=s.customer_id JOIN environment e ON e.id=s.environment_id JOIN asset a ON a.id=s.asset_id JOIN asset_endpoint ep ON ep.id=s.endpoint_id JOIN connection_profile cp ON cp.id=s.profile_id ORDER BY s.customer_id,s.asset_id LIMIT 1001`)
 	if e != nil {
 		return out, ErrUnavailable
 	}
@@ -59,11 +59,13 @@ func (s *Store) Schedules(ctx context.Context, actor workspace.Principal) (sched
 	for rows.Next() { // scanSchedule also serves fixed-column repository reads.
 		var p scheduler.Profile
 		var last, admit, complete *time.Time
-		var ownPaused, paused bool
-		if rows.Scan(&p.ID, &p.CustomerID, &p.EnvironmentID, &p.AssetID, &p.Target.EndpointID, &p.Target.ProfileID, &p.Target.ProfileVersion, &p.PrincipalID, &p.Revision, &p.Collectors, &p.Interval, &p.Budget, &p.Enabled, &p.Authorized, &ownPaused, &p.NextDue, &last, &admit, &complete, &p.RetryCount, &p.State, &p.Category, &p.LagSeconds, &p.Skipped, &p.ClusterID, &paused, &p.Eligible, &p.Clusters) != nil {
+		var ownPaused, paused, busy bool
+		if rows.Scan(&p.ID, &p.CustomerID, &p.EnvironmentID, &p.AssetID, &p.Target.EndpointID, &p.Target.ProfileID, &p.Target.ProfileVersion, &p.PrincipalID, &p.Revision, &p.Collectors, &p.Interval, &p.Budget, &p.Enabled, &p.Authorized, &ownPaused, &p.NextDue, &last, &admit, &complete, &p.RetryCount, &p.State, &p.Category, &p.LagSeconds, &p.Skipped, &p.ClusterID, &paused, &p.EvidenceEligible, &busy, &p.Clusters) != nil {
 			return out, ErrUnavailable
 		}
+		p.Eligible = p.EvidenceEligible && !busy
 		if len(p.Clusters) > 1000 {
+			p.EvidenceEligible = false
 			p.Eligible = false
 			p.Category = "cluster_limit"
 		}

@@ -25,6 +25,10 @@ type runtimeRow struct {
 	AgeSeconds                          int64
 }
 type runtimeData struct {
+	AuthorizationDiagnostic     string
+	ConnectivityTTL             int
+	Paused, Authorized          bool
+	Attempts                    []collection.Run
 	Available, Enabled          bool
 	Status                      string
 	Profile                     scheduler.Profile
@@ -56,7 +60,7 @@ func (s *Server) serverRuntime(r *http.Request, v workspace.ServerDetail, in hea
 				live = true
 			}
 		}
-		d.Enabled = live && p.Enabled && p.Authorized && p.Eligible && !p.Paused && !snap.Paused && !snap.Stopped && slices.Contains(p.Collectors, services.Collector)
+		d.Enabled = live && p.Enabled && p.Authorized && (p.Eligible || p.EvidenceEligible) && !p.Paused && !snap.Paused && !snap.Stopped && slices.Contains(p.Collectors, services.Collector)
 		if d.Enabled {
 			d.Status = "Monitoring enabled"
 		} else if p.Enabled {

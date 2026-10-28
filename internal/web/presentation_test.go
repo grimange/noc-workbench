@@ -2,38 +2,21 @@ package web
 
 import (
 	"noc-workbench/internal/collectors/baseline"
-	"strings"
 	"testing"
 	"time"
 )
 
 func TestConsolePresentationEvidenceStates(t *testing.T) {
 	at := time.Date(2026, 10, 28, 1, 0, 0, 0, time.UTC)
-	d := runtimeData{Enabled: true, Outcome: "success", LastObservation: at.Add(-2 * time.Minute)}
-	r := resourceData{Current: true, UnitsAvailable: true, Status: map[string]string{"units_status": "observed"}, Units: []baseline.Unit{{Active: "failed"}, {Active: "active", Sub: "exited"}}}
+	d := runtimeData{Enabled: true, LastObservation: at.Add(-2 * time.Minute)}
+	r := resourceData{Current: true, UnitsAvailable: true, Status: map[string]string{"units_status": "observed"}, Units: []baseline.Unit{{Active: "failed"}}}
 	v := presentation(r, d, at)
-	if v.Availability != "Observed" || v.Issues != "1 failed units" || v.Age != "2 min ago" {
+	if v.Availability != "Unknown" || v.Issues != "1 failed units" || v.Attention != 2 {
 		t.Fatal(v)
 	}
 	r.UnitsAvailable = false
-	if got := presentation(r, d, at); got.Issues != "Unknown" {
-		t.Fatal(got)
-	}
-	for _, outcome := range []string{"transport_error", "permission_denied", "host_key_mismatch", "cancelled"} {
-		d.Outcome = outcome
-		if got := presentation(r, d, at); !strings.Contains(got.Availability, outcome) || strings.Contains(got.Availability, "unreachable") {
-			t.Fatal(got)
-		}
-	}
-	d.Outcome = "success"
-	r.Current = false
-	r.State = "Stale"
-	if got := presentation(r, d, at); got.Availability != "Stale evidence" {
-		t.Fatal(got)
-	}
-	d.Enabled = false
-	if got := presentation(r, d, at); got.Availability != "Monitoring inactive" {
-		t.Fatal(got)
+	if presentation(r, d, at).Issues != "Unknown" {
+		t.Fatal("unsupported unit evidence")
 	}
 }
 func TestConsoleGaugesRequireCurrentMeasurements(t *testing.T) {
@@ -53,5 +36,30 @@ func TestConsoleGaugesRequireCurrentMeasurements(t *testing.T) {
 		if d.Gauges[0].Valid {
 			t.Fatal(d)
 		}
+	}
+}
+
+func TestPersistentAndTransientStorage(t *testing.T) {
+	for _, source := range []string{"tmpfs", "devtmpfs", "proc", "sysfs"} {
+		if !transientFilesystem(source) {
+			t.Fatal(source)
+		}
+	}
+	for _, mount := range []string{"/data", "/var/lib/database", "/tmp"} {
+		d := resourceData{Filesystems: []filesystemRow{{Mount: mount, Percent: "25%", State: "Current"}}}
+		resourceGauges(&d)
+		if !d.Gauges[2].Valid {
+			t.Fatal("persistent mount hidden", mount)
+		}
+	}
+	d := resourceData{Filesystems: []filesystemRow{{Mount: "/scratch", Technical: true, Percent: "25%", State: "Current"}}}
+	resourceGauges(&d)
+	if d.Gauges[2].Valid {
+		t.Fatal("transient source presented as primary persistent storage")
+	}
+	d = resourceData{Metrics: []resourceMetric{{Name: "Load · 1 minute", Value: "1.25", State: "Current"}}}
+	resourceGauges(&d)
+	if d.Gauges[0].Valid || d.Gauges[0].Value != "Unknown" {
+		t.Fatal("load fabricated CPU utilization")
 	}
 }

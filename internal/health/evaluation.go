@@ -66,10 +66,12 @@ func SupportedSelector(s string) bool {
 }
 
 type Input struct {
+	AuthorizationDiagnostic    string
 	Scope                      collection.HistoryScope
 	At                         time.Time
 	Active, Trusted            bool
 	LatestAttempt, LastSuccess *collection.Run
+	RecentAttempts             []collection.Run
 	Evidence                   []collection.Evidence
 	Policies                   []Policy // one applicable revision per selector, selected as-of by repository
 	IntervalSeconds            int

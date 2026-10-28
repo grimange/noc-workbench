@@ -74,6 +74,22 @@ func TestIntegrationBaselineAutomatic(t *testing.T) {
 	if db.IntegrationAllowed(ctx, workspace.Principal{}, target, "baseline") == nil {
 		t.Fatal("anonymous authority")
 	}
+	// An in-flight command lock denies admission, not presentation authority.
+	token, e := db.BeginSSH(ctx, p, target)
+	must(e)
+	snap, e = db.Schedules(ctx, p)
+	must(e)
+	if snap.Profiles[0].Eligible || !snap.Profiles[0].EvidenceEligible {
+		t.Fatal("execution lock changed authority", snap)
+	}
+	scope := workspace.Scope{Customers: []string{h.CustomerID}, Environments: []string{h.EnvironmentID}}
+	inputs, records, e := db.ServerEvidence(ctx, scope, []string{h.AssetID}, time.Now().UTC())
+	must(e)
+	if len(inputs) != 1 || !inputs[0].Trusted || len(records) != 1 {
+		t.Fatal("in-flight evidence authority lost", inputs, records)
+	}
+	must(db.EndSSH(ctx, target.ProfileID, token))
+
 	run, e := svc.Collect(req, p, target)
 	must(e)
 	if run.SuccessCount != 1 {
@@ -130,6 +146,23 @@ func TestIntegrationBaselineAutomatic(t *testing.T) {
 	if db.IntegrationAllowed(ctx, p, alien, "baseline") == nil {
 		t.Fatal("cross asset")
 	}
+	// The actual quarantine state retains its diagnostic without any execution authority.
+	rec.State = "identity_changed"
+	rec.Details.LastCategory = "host_key_mismatch"
+	rec.Details.ApprovedKey = ""
+	_, e = db.SaveEnrollment(ctx, p, rec, rec.Revision, "verify")
+	must(e)
+	inputs, records, e = db.ServerEvidence(ctx, scope, []string{h.AssetID}, time.Now().UTC())
+	must(e)
+	if len(inputs) != 1 || inputs[0].Trusted || len(records) != 0 || inputs[0].AuthorizationDiagnostic != "SSH host-key trust problem" {
+		t.Fatal("quarantine projection", inputs, records)
+	}
+	denied, hidden, e := db.ServerEvidence(ctx, workspace.Scope{}, []string{h.AssetID}, time.Now().UTC())
+	must(e)
+	if len(denied) != 0 || len(hidden) != 0 {
+		t.Fatal("unscoped diagnostics leaked")
+	}
+
 }
 
 func TestIntegrationBaselinePreservesApprovedCollectors(t *testing.T) {

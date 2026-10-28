@@ -65,6 +65,21 @@ func (s *Server) consoleServers(r *http.Request, scope workspace.Scope, servers 
 		d := v.Runtime
 		d.Available = s.options.Scheduler != nil && s.options.Enrollment != nil
 		d.Attempt = in.LatestAttempt
+		d.Attempts = in.RecentAttempts
+		d.AuthorizationDiagnostic = in.AuthorizationDiagnostic
+		for _, policy := range in.Policies {
+			if policy.Selector == "linux.services" && policy.Enabled {
+				d.ConnectivityTTL = policy.TTLSeconds
+			}
+		}
+		for _, policy := range in.Policies {
+			if policy.Selector == "linux.service.runtime" {
+				d.ConnectivityTTL = 0
+				if policy.Enabled {
+					d.ConnectivityTTL = policy.TTLSeconds
+				}
+			}
+		}
 		for _, p := range snap.Profiles {
 			if p.AssetID == v.ID && p.CustomerID == v.CustomerID && p.EnvironmentID == v.EnvironmentID && p.CollectionSource.ID == "" {
 				d.Profile = p
@@ -72,9 +87,21 @@ func (s *Server) consoleServers(r *http.Request, scope workspace.Scope, servers 
 			}
 		}
 		p := d.Profile
+		if p.Category == "host_key_mismatch" || p.Category == "unknown_host_key" {
+			d.AuthorizationDiagnostic = "SSH host-key trust problem"
+		} else if p.Category == "authentication_failed" || p.Category == "permission_denied" {
+			d.AuthorizationDiagnostic = "SSH authentication / authorization problem"
+		}
+		d.Paused = p.Paused || snap.Paused || snap.Stopped
 		in.IntervalSeconds = p.Interval
 		for _, rec := range records {
-			if rec.AssetID == v.ID && rec.Target() == p.Target && live[rec.ID] && p.Enabled && p.Authorized && p.Eligible && !p.Paused && !snap.Paused && !snap.Stopped {
+			if rec.AssetID == v.ID && rec.Target() == p.Target && !live[rec.ID] && d.AuthorizationDiagnostic == "" {
+				d.AuthorizationDiagnostic = "SSH authentication / authorization problem"
+			}
+			if rec.AssetID == v.ID && rec.Target() == p.Target && live[rec.ID] && in.Active && in.Trusted && p.Authorized && (p.Eligible || p.EvidenceEligible) {
+				d.Authorized = true
+			}
+			if rec.AssetID == v.ID && rec.Target() == p.Target && live[rec.ID] && p.Enabled && p.Authorized && (p.Eligible || p.EvidenceEligible) && !d.Paused {
 				for _, c := range p.Collectors {
 					if c == "linux.services" {
 						d.Enabled = true
@@ -130,6 +157,10 @@ func (s *Server) consoleEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid page", 400)
 		return
 	}
+	if !validFleetOptions(r) {
+		http.Error(w, "Invalid filter or sort", 400)
+		return
+	}
 	id := r.PathValue("asset")
 	if id != "" {
 		if _, err := repo.ServerDetails(r.Context(), scope, id); err != nil {
@@ -145,14 +176,18 @@ func (s *Server) consoleEvents(w http.ResponseWriter, r *http.Request) {
 				return [32]byte{}, e
 			}
 			servers = []workspace.Server{v.Server}
+		}
+		var rows []consoleServer
+		var counts fleetCounts
+		var e error
+		if id != "" {
+			rows, e = s.consoleServers(r, scope, servers)
 		} else {
-			var e error
-			servers, _, e = repo.Servers(r.Context(), scope, q, offset)
-			if e != nil {
-				return [32]byte{}, e
+			rows, e = s.fleet(r, scope, q)
+			if e == nil {
+				rows, counts, _ = fleetPage(rows, r.URL.Query().Get("availability"), r.URL.Query().Get("sort"), offset)
 			}
 		}
-		rows, e := s.consoleServers(r, scope, servers)
 		if e != nil {
 			return [32]byte{}, e
 		}
@@ -165,7 +200,10 @@ func (s *Server) consoleEvents(w http.ResponseWriter, r *http.Request) {
 				rows[i].Runtime.Rows[j].AgeSeconds = 0
 			}
 		}
-		b, e := json.Marshal(rows)
+		b, e := json.Marshal(struct {
+			Rows   []consoleServer
+			Counts fleetCounts
+		}{rows, counts})
 		return sha256.Sum256(b), e
 	})
 }

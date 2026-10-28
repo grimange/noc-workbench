@@ -21,6 +21,8 @@ const ProfileLimit = 1000
 var ErrInvalid = errors.New("Invalid or changed schedule configuration; review verified enrollment and explicit scheduling authorization.")
 
 type Profile struct {
+	// EvidenceEligible excludes only the transient execution lock; admission still uses Eligible.
+	EvidenceEligible                                               bool
 	CollectionSource                                               collection.Source
 	Clusters                                                       []string
 	ID, CustomerID, EnvironmentID, AssetID, ClusterID, PrincipalID string

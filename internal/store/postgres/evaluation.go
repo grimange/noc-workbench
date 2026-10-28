@@ -90,7 +90,7 @@ func (s *Store) EvaluationEvidence(ctx context.Context, p workspace.Principal, h
 func evaluationEvidenceTx(ctx context.Context, tx pgx.Tx, h collection.HistoryScope, at time.Time) (health.Input, error) {
 	in := health.Input{Scope: h, At: at}
 	var e error
-	e = tx.QueryRow(ctx, `SELECT a.lifecycle='active' AND e.status='active' AND c.status='active',EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state='connection_verified') AND NOT EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state<>'connection_verified') AND NOT EXISTS(SELECT 1 FROM ssh_execution_guard g JOIN connection_profile cp ON cp.id=g.profile_id WHERE cp.asset_id=a.id),coalesce((SELECT interval_seconds FROM collection_schedule WHERE asset_id=a.id AND enabled AND authorized),0) FROM asset a JOIN environment e ON e.id=a.environment_id JOIN customer c ON c.id=e.customer_id WHERE a.id=$1 AND e.id=$2 AND c.id=$3`, h.AssetID, h.EnvironmentID, h.CustomerID).Scan(&in.Active, &in.Trusted, &in.IntervalSeconds)
+	e = tx.QueryRow(ctx, `SELECT a.lifecycle='active' AND e.status='active' AND c.status='active',EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state='connection_verified') AND NOT EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state<>'connection_verified'),coalesce((SELECT interval_seconds FROM collection_schedule WHERE asset_id=a.id AND enabled AND authorized),0) FROM asset a JOIN environment e ON e.id=a.environment_id JOIN customer c ON c.id=e.customer_id WHERE a.id=$1 AND e.id=$2 AND c.id=$3`, h.AssetID, h.EnvironmentID, h.CustomerID).Scan(&in.Active, &in.Trusted, &in.IntervalSeconds)
 	if e != nil {
 		return in, workspace.ErrDenied
 	}

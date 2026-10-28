@@ -16,6 +16,7 @@ type resourceMetric struct {
 	At                         time.Time
 }
 type filesystemRow struct {
+	Technical                                     bool
 	Mount, Used, Available, Total, Percent, State string
 	At                                            time.Time
 }
@@ -121,7 +122,7 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 	if tok && aok && total.Evidence.RunID == avail.Evidence.RunID && total.Evidence.Value.Integer >= avail.Evidence.Value.Integer {
 		if state(total) == "Current" && state(avail) == "Current" && total.Evidence.Value.Integer > 0 {
 			used := total.Evidence.Value.Integer - avail.Evidence.Value.Integer
-			result.MemoryGauge = resourceGauge{"Memory", fmt.Sprintf("%.1f%%", 100*float64(used)/float64(total.Evidence.Value.Integer)), bytesText(used) + " / " + bytesText(total.Evidence.Value.Integer), "Current", 100 * float64(used) / float64(total.Evidence.Value.Integer), true}
+			result.MemoryGauge = resourceGauge{"Memory", fmt.Sprintf("%.1f%%", 100*float64(used)/float64(total.Evidence.Value.Integer)), bytesText(used) + " / " + bytesText(total.Evidence.Value.Integer) + " · " + bytesText(avail.Evidence.Value.Integer) + " available", "Current", 100 * float64(used) / float64(total.Evidence.Value.Integer), true}
 		}
 		result.Metrics = append(result.Metrics, resourceMetric{Name: "RAM used (total − available)", Value: bytesText(total.Evidence.Value.Integer - avail.Evidence.Value.Integer), State: state(avail), At: avail.Evidence.ObservedAt, Source: avail.Evidence.CommandID})
 	}
@@ -137,6 +138,9 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 			continue
 		}
 		row := filesystemRow{Mount: mount, Total: bytesText(r.Evidence.Value.Integer), State: state(r), At: r.Evidence.ObservedAt, Used: "Unknown", Available: "Unknown", Percent: "Unknown"}
+		if source, ok := readings["linux.filesystem.identifier\x00"+mount]; ok && source.Evidence.RunID == r.Evidence.RunID {
+			row.Technical = transientFilesystem(source.Evidence.Value.Text)
+		}
 		for _, k := range []string{"used_bytes", "available_bytes", "utilization_percent"} {
 			v, ok := readings["linux.filesystem."+k+"\x00"+mount]
 			if !ok || v.Evidence.RunID != r.Evidence.RunID || state(v) != row.State {
@@ -203,7 +207,12 @@ func resources(in health.Input, out health.Evaluation, d runtimeData) resourceDa
 	if len(result.Memory) > 10 {
 		result.Memory = result.Memory[:10]
 	}
-	sort.Slice(result.Units, func(i, j int) bool { return result.Units[i].Name < result.Units[j].Name })
+	sort.Slice(result.Units, func(i, j int) bool {
+		if (result.Units[i].Active == "failed") != (result.Units[j].Active == "failed") {
+			return result.Units[i].Active == "failed"
+		}
+		return result.Units[i].Name < result.Units[j].Name
+	})
 	resourceGauges(&result)
 	return result
 }

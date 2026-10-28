@@ -77,20 +77,24 @@ if (inventoryFile) inventoryFile.addEventListener('change', async () => {
     const state = document.querySelector('[data-unit-state]').value;
     let count = 0;
     table.querySelectorAll('tbody tr').forEach(row => {
-      const cells = row.cells; if (cells.length !== 5) return;
-      row.hidden = !cells[0].textContent.toLowerCase().includes(q) || !!(state && cells[2].textContent !== state && cells[3].textContent !== state);
+      const cells = row.cells; if (cells.length !== 4) return;
+      row.hidden = !cells[0].textContent.toLowerCase().includes(q) || !!(state && row.dataset.unitActive !== state && row.dataset.unitSub !== state);
       if (!row.hidden) count++;
     });
     document.querySelector('[data-unit-count]').textContent = count + ' matching units';
   }
   window.addEventListener('hashchange', sections);
-  document.addEventListener('console:updated', () => { sections(); filterUnits(); });
+  document.addEventListener('console:updated', () => { sections(); filterUnits(); document.querySelectorAll('[data-sortable] th[aria-sort]').forEach(th => sortProcesses(th.querySelector('[data-sort]'), th.getAttribute('aria-sort') === 'descending')); limitProcesses(); });
   document.addEventListener('input', e => { if (e.target.matches('[data-unit-search]')) filterUnits(); });
   document.addEventListener('change', e => { if (e.target.matches('[data-unit-state]')) filterUnits(); });
+  function limitProcesses() { document.querySelectorAll('[data-process-table]').forEach(table => { const expanded = document.querySelector('[data-process-expand]')?.getAttribute('aria-expanded') === 'true'; [...table.tBodies[0].rows].forEach((row,i) => row.hidden = !expanded && i >= 5); }); }
   document.addEventListener('click', e => {
+    const expand=e.target.closest('[data-process-expand]'); if(expand){ const open=expand.getAttribute('aria-expanded')!=='true'; expand.setAttribute('aria-expanded',String(open)); expand.textContent=open?'Show top five processes':'Show up to 10 processes';limitProcesses();return; }
     const button = e.target.closest('[data-sort]'); if (!button) return;
+    sortProcesses(button, button.closest('th').getAttribute('aria-sort') !== 'descending');
+  });
+  function sortProcesses(button, desc) {
     const table = button.closest('table'), index = Number(button.dataset.sort);
-    const desc = button.closest('th').getAttribute('aria-sort') !== 'descending';
     const rows = [...table.tBodies[0].rows].filter(r => r.cells.length === 4);
     rows.sort((a,b) => {
       const x = a.cells[index].dataset.sortValue || a.cells[index].textContent;
@@ -100,7 +104,7 @@ if (inventoryFile) inventoryFile.addEventListener('change', async () => {
     });
     table.querySelectorAll('th').forEach(th => th.removeAttribute('aria-sort'));
     button.closest('th').setAttribute('aria-sort', desc ? 'descending' : 'ascending');
-    rows.forEach(row => table.tBodies[0].append(row));
-  });
-  sections(); filterUnits();
+    rows.forEach(row => table.tBodies[0].append(row));limitProcesses();
+  }
+  sections(); filterUnits();limitProcesses();
 })();

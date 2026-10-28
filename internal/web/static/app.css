@@ -255,3 +255,10 @@ button[data-sort]{background:transparent;border:0;color:inherit;cursor:pointer;f
 .detail-section table{min-width:640px}.detail-section th:first-child{min-width:160px}.table-scroll:focus-visible{outline-offset:-3px}.server-table td:first-child,.server-table thead th:first-child{position:sticky;left:0;background:var(--surface);z-index:1}.server-table thead th:first-child{background:var(--bg)}
 
 .skip-link:not(:focus){clip-path:inset(50%);width:1px;height:1px;overflow:hidden;padding:0}
+
+/* E2 operational summaries use evidence, never decorative health scores. */
+.fleet-summary{display:flex;flex-wrap:wrap;gap:8px 24px;padding:12px 20px;border-block:1px solid var(--border);color:var(--muted);font-size:.85rem}.fleet-summary strong{color:var(--text);font-size:1rem}.console-search{flex-wrap:wrap}.console-search select{max-width:100%;min-height:38px}.status-label.warning{border:1px solid currentColor}.monitoring-strip .status-label{font-size:1rem}.resource-gauge progress{height:10px;accent-color:var(--teal)}.resource-gauge p{line-height:1.5}.resource-gauge .gauge-value{font-variant-numeric:tabular-nums}@media(max-width:480px){.console-search select{width:100%}.fleet-summary{padding:12px;gap:8px 16px}}
+.monitoring-strip>details{width:100%;min-width:0}.monitoring-strip .console-summary{grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr))}.monitoring-strip>p{min-width:0;overflow-wrap:anywhere}
+
+/* Closed evidence panels must not contribute intrinsic table widths. */
+details:not([open])>:not(summary){display:none}

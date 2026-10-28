@@ -154,4 +154,16 @@ func TestIntegrationBaselineConsoleAutomatic(t *testing.T) {
 	if page.Code != 200 || !strings.Contains(page.Body.String(), "Historical — monitoring paused or not authorized") || strings.Contains(page.Body.String(), "<strong>Process running</strong>") {
 		t.Fatal("paused history", page.Body.String())
 	}
+	// A changed-key enrollment remains blocked, but its trust incident is visible.
+	rec.State = "identity_changed"
+	rec.Details.LastCategory = "host_key_mismatch"
+	rec.Details.ApprovedKey = ""
+	_, e = db.SaveEnrollment(ctx, p, rec, rec.Revision, "verify")
+	must(e)
+	must(sched.Control(ctx, p, scheduler.Control{Kind: "asset", ID: asset.ID, Paused: false}))
+	page = request(h, "GET", path, nil, cookie)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "SSH host-key trust problem") || strings.Contains(page.Body.String(), "<progress") {
+		t.Fatal("quarantine lost diagnostic or gained current data", page.Body.String())
+	}
+
 }

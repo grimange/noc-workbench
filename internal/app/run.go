@@ -12,6 +12,7 @@ import (
 	"noc-workbench/internal/alerts"
 	"noc-workbench/internal/collection"
 	linux "noc-workbench/internal/collectors/linux"
+	"noc-workbench/internal/collectors/services"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/integrations/asterisk"
 	"noc-workbench/internal/integrations/vicidialapi"
@@ -61,7 +62,7 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	if err := db.RecoverCollections(startup); err != nil {
 		return errors.New("collection recovery failed")
 	}
-	discovery := collection.NewService(vicidialdiscovery.Executor{Next: asterisk.Executor{Next: enrollment, Authority: db}, Authority: db}, linux.Registry().Extend(asterisk.Specs()...).Extend(vicidialdiscovery.Specs()...), db)
+	discovery := collection.NewService(vicidialdiscovery.Executor{Next: services.Executor{Next: asterisk.Executor{Next: enrollment, Authority: db}, Authority: db}, Authority: db}, linux.Registry().Extend(asterisk.Specs()...).Extend(vicidialdiscovery.Specs()...).Extend(services.Specs()...), db)
 	if cfg.CollectionTTL > 0 {
 		discovery.TTLSeconds = cfg.CollectionTTL
 	}

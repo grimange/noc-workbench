@@ -117,6 +117,7 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("GET /settings", s.settingsPage)
 	mux.HandleFunc("GET /servers/{asset}", s.serverDetails)
 	mux.HandleFunc("POST /servers/{asset}/discovery", s.serverDiscovery)
+	mux.HandleFunc("POST /servers/{asset}/monitoring", s.serverMonitoring)
 	mux.HandleFunc("GET /customers", s.customers)
 	mux.HandleFunc("GET /customers/new", s.customerForm)
 	mux.HandleFunc("POST /customers", s.customerForm)

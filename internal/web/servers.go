@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"noc-workbench/internal/collection"
+	"noc-workbench/internal/collectors/services"
 	"noc-workbench/internal/health"
 	"noc-workbench/internal/integrations/vicidialdiscovery"
 	"noc-workbench/internal/workspace"
@@ -21,6 +22,7 @@ type serverData struct {
 	Result            health.Evaluation
 	Discovery         vicidialdiscovery.Result
 	CanDiscover       bool
+	Runtime           runtimeData
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
@@ -109,9 +111,14 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 				d.Server.Discovery = vicidialdiscovery.Evaluate(ev, in.At, reading.Freshness, authorized)
 			}
 		}
+		d.Server.Runtime, e = s.serverRuntime(r, v, in, d.Server.Result, d.Enrollment.Records)
+		if e != nil {
+			s.inventoryFailure(w, d, e)
+			return
+		}
 		filtered := d.Server.Result.Readings[:0]
 		for _, reading := range d.Server.Result.Readings {
-			if reading.Evidence.Key != vicidialdiscovery.Key {
+			if reading.Evidence.Key != vicidialdiscovery.Key && reading.Evidence.Key != services.Key {
 				filtered = append(filtered, reading)
 			}
 		}

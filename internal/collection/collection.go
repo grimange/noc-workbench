@@ -29,7 +29,7 @@ type Observation struct {
 	ProfileVersion                                      int64
 	CollectorID, CollectorVersion, CommandID, Transport string
 	Key, Unit, Quality                                  string
-	// Resource identifies a filesystem mount; it is never an inventory identity.
+	// Resource identifies a filesystem mount or discovered service; it is never an inventory identity.
 	Resource string
 	Value    Value
 	// ObservedAt is the application sampling start; remote clock is not trusted.

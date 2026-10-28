@@ -503,5 +503,42 @@ timestamp, reasons and hashed candidate peer references. No passwords, arbitrary
 registry fields, recordings, raw configuration or peer addresses are retained.
 PostgreSQL migration 014 extends existing observation constraints and freshness
 policy; it does not create inventory members, schedules or remote authority.
-Runtime service discovery/60-second monitoring and further Dashboard integration
-remain NW-36 Slices B/C.
+Runtime service monitoring is described below. Further Dashboard integration
+remains NW-36 Slice C.
+
+## Runtime service monitoring (NW-36 Slice B)
+
+Server Details offers **Enable 60-second monitoring** after explicit authorization
+of the current verified SSH enrollment. This adds `linux.services` to the existing
+one-per-server schedule, retaining other collector choices. The profile uses the
+accepted scheduler, shared five-asset admission limit, pause/resume, emergency
+stop and bounded retry behavior. Static installation discovery stays on demand.
+The interval is a target: scheduling jitter, capacity, connectivity and execution
+can delay observations. The page shows actual timestamps, latest attempt,
+scheduler state, delay and skipped work. Opening pages never contacts servers.
+
+The fixed read-only collector inspects bounded systemd unit metadata, approved
+binary availability and process identities for Asterisk, MariaDB/MySQL and Apache.
+It retains the observed canonical unit name, independent unit/process signals,
+collector version and provenance. Asterisk CLI, SQL connectivity, HTTP responses,
+replication, AMI and service control are not enabled by this profile. A running
+process does not establish application responsiveness. ViciBox can have Asterisk
+running while `asterisk.service` is inactive; both signals remain visible.
+
+VICIdial process matching currently supports the readable SVN 4034 source layout:
+`AST_update.pl`, `AST_VDauto_dial.pl`, `AST_VDauto_dial_FILL.pl`,
+`AST_manager_send.pl` and `AST_manager_listen.pl`. Exact paths under
+`/usr/share/astguiclient/` are matched in approved process positions; arguments
+are discarded remotely. Other
+source revisions return Unsupported for these process checks while generic Linux
+checks remain available. Missing executables, missing units or an absent process
+alone do not establish uninstallation. Without unit authority, negative process
+evidence remains Unknown. Restricted or failed inspection never proves Stopped.
+
+Migration 015 extends canonical observations and policy selectors without adding
+service inventory tables or automatically enabling polling. Runtime evidence uses
+the existing versioned policy evaluator (default TTL 180 seconds). Failed attempts
+preserve prior observations and original timestamps. Disabled, paused, blocked,
+untrusted or stale evidence has Unknown current runtime state; its last observed
+state remains available. Broader Dashboard/service presentation remains Slice C;
+NW-37 hybrid Asterisk operational monitoring remains deferred.

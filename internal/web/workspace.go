@@ -5,17 +5,15 @@ import (
 	"net/http"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/workspace"
-	"strconv"
 )
 
 type workspaceData struct {
-	Target                            workspace.Target
-	Results, Pins, Recent, Related    []workspace.Target
-	Notes                             []workspace.Note
-	Links                             []workspace.Link
-	Query, Command                    string
-	Offset, Next, Previous            int
-	More, CanPin, CanLink, CanCommand bool
+	Target workspace.Target
+
+	Notes []workspace.Note
+	Links []workspace.Link
+
+	CanLink bool
 }
 
 func (s *Server) workspaceService() (workspace.Service, bool) {
@@ -26,16 +24,6 @@ func (s *Server) workspaceService() (workspace.Service, bool) {
 // Authentication establishes this one persistent actor. Sessions are deliberately
 // not durable owners. Future account authentication must supply its own principal.
 func operatorPrincipal() workspace.Principal { return workspace.Principal{ID: workspace.OperatorID} }
-func (s *Server) workspaceVisit(r *http.Request, kind, id string) {
-	svc, ok := s.workspaceService()
-	if !ok {
-		return
-	}
-	t, e := svc.Target(r.Context(), operatorPrincipal(), kind, id)
-	if e == nil {
-		_ = svc.Change(r.Context(), operatorPrincipal(), t, workspace.Change{Operation: "visit"})
-	}
-}
 func (s *Server) operatorWorkspace(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.inventoryPage(w, r)
 	if !ok {
@@ -51,72 +39,32 @@ func (s *Server) operatorWorkspace(w http.ResponseWriter, r *http.Request) {
 	kind, id := r.PathValue("targetkind"), r.PathValue("targetid")
 	var err error
 	if kind == "" {
-		d.Workspace.Query = r.URL.Query().Get("q")
-		offset := 0
-		if raw := r.URL.Query().Get("offset"); raw != "" {
-			offset, err = strconv.Atoi(raw)
-			if err != nil || offset < 0 || offset > 1000 {
-				http.Error(w, "Invalid search offset", 400)
+		http.Redirect(w, r, "/servers", 303)
+		return
+	}
+	d.Workspace.Target, err = svc.Target(r.Context(), p, kind, id)
+	if err == nil {
+		t := d.Workspace.Target
+		d.Workspace.CanLink = kind == "customers" || kind == "environments" || kind == "clusters"
+		if r.Method == http.MethodPost {
+			op := r.PostForm.Get("operation")
+			switch op {
+			case "note.save", "note.remove", "link.save", "link.remove":
+			default:
+				http.Error(w, "This operation has been retired", http.StatusGone)
+				return
+			}
+			err = svc.Change(r.Context(), p, t, workspace.Change{Operation: op, ID: r.PostForm.Get("id"), Body: r.PostForm.Get("body"), Visibility: r.PostForm.Get("visibility"), Label: r.PostForm.Get("label"), URL: r.PostForm.Get("url"), Type: r.PostForm.Get("type"), Pinned: r.PostForm.Get("pinned") == "on", Disabled: r.PostForm.Get("disabled") == "on"})
+			if err == nil {
+				http.Redirect(w, r, t.QuickURL()+"?saved=1", http.StatusSeeOther)
 				return
 			}
 		}
-		d.Workspace.Offset = offset
-		d.Workspace.Next = offset + 25
-		d.Workspace.Previous = max(0, offset-25)
-		d.Workspace.Results, d.Workspace.More, err = svc.Search(r.Context(), p, d.Workspace.Query, offset)
 		if err == nil {
-			d.Workspace.Pins, err = svc.Targets(r.Context(), p, true)
+			d.Workspace.Notes, err = svc.Notes(r.Context(), p, t)
 		}
 		if err == nil {
-			d.Workspace.Recent, err = svc.Targets(r.Context(), p, false)
-		}
-	} else {
-		d.Workspace.Target, err = svc.Target(r.Context(), p, kind, id)
-		if err == nil {
-			t := d.Workspace.Target
-			d.Workspace.CanPin = kind == "customers" || kind == "clusters" || kind == "assets"
-			d.Workspace.CanLink = kind == "customers" || kind == "environments" || kind == "clusters"
-			if kind == "endpoints" && t.Lifecycle == "active" {
-				repo, yes := s.store.(inventory.TopologyRepository)
-				if yes {
-					ep, e := repo.GetEndpoint(r.Context(), t.EnvironmentID, t.ID)
-					if e != nil {
-						err = e
-					} else {
-						d.Workspace.CanCommand = ep.Protocol == "ssh" && ep.Status == "active"
-					}
-				}
-			}
-			if r.Method == http.MethodPost {
-				c := workspace.Change{Operation: r.PostForm.Get("operation"), ID: r.PostForm.Get("id"), Body: r.PostForm.Get("body"), Visibility: r.PostForm.Get("visibility"), Label: r.PostForm.Get("label"), URL: r.PostForm.Get("url"), Type: r.PostForm.Get("type"), Pinned: r.PostForm.Get("pinned") == "on", Disabled: r.PostForm.Get("disabled") == "on"}
-				if c.Operation == "command.copy" && !d.Workspace.CanCommand {
-					err = workspace.ErrDenied
-				}
-				if err == nil {
-					err = svc.Change(r.Context(), p, t, c)
-				}
-				if err == nil && c.Operation == "command.copy" {
-					ep, e := s.store.(inventory.TopologyRepository).GetEndpoint(r.Context(), t.EnvironmentID, t.ID)
-					if e == nil {
-						d.Workspace.Command, e = workspace.SSHCommand(ep)
-					}
-					err = e
-				} else if err == nil {
-					http.Redirect(w, r, t.QuickURL()+"?saved=1", http.StatusSeeOther)
-					return
-				}
-			} else {
-				err = svc.Change(r.Context(), p, t, workspace.Change{Operation: "visit"})
-			}
-			if err == nil {
-				d.Workspace.Related, err = svc.Related(r.Context(), p, t)
-			}
-			if err == nil {
-				d.Workspace.Notes, err = svc.Notes(r.Context(), p, t)
-			}
-			if err == nil {
-				d.Workspace.Links, err = svc.Links(r.Context(), p, t)
-			}
+			d.Workspace.Links, err = svc.Links(r.Context(), p, t)
 		}
 	}
 	if err != nil {
@@ -140,7 +88,7 @@ func (s *Server) operatorWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Query().Get("saved") == "1" {
-		d.Notice = "Workspace change saved."
+		d.Notice = "Notes or links saved."
 	}
 	s.render(w, "workspace.html", d)
 }

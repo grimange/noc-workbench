@@ -6,9 +6,11 @@ import (
 
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/scheduler"
+	"noc-workbench/internal/workspace"
 )
 
 type schedulingData struct {
+	Servers    []consoleServer
 	Available  bool
 	Status     scheduler.Status
 	Profile    scheduler.Profile
@@ -60,6 +62,16 @@ func (s *Server) schedulerPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Scheduling = schedulingData{Available: true, Status: status}
+	scope, e := (workspace.LocalOperatorPolicy{}).Scope(operatorPrincipal(), workspace.ScheduleManage)
+	if e != nil {
+		http.Error(w, "Forbidden", 403)
+		return
+	}
+	d.Scheduling.Servers, e = s.fleet(r, scope, "")
+	if e != nil {
+		s.inventoryFailure(w, d, e)
+		return
+	}
 	s.render(w, "scheduler.html", d)
 }
 func (s *Server) assetSchedule(w http.ResponseWriter, r *http.Request) {

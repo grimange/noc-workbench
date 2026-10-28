@@ -135,7 +135,7 @@ func TestIntegrationInventoryHTTP(t *testing.T) {
 	other := strings.Split(post("/customers", customer("Synthetic Other", "OTHER"), 303), "?")[0]
 	post("/customers", customer("synthetic <customer>", "NEW"), 422)
 	post("/customers", customer("Another", "syn"), 422)
-	body := request(h, "GET", path, nil, cookie).Body.String()
+	body := request(h, "GET", path+"/edit", nil, cookie).Body.String()
 	if strings.Contains(body, "<script>synthetic") || !strings.Contains(body, "&lt;Customer&gt;") || !strings.Contains(body, "&lt;script&gt;synthetic") {
 		t.Fatal("unescaped customer")
 	}
@@ -162,7 +162,7 @@ func TestIntegrationInventoryHTTP(t *testing.T) {
 		}
 	}
 	post(other+"/environments/"+eid+"/edit", env, 404)
-	if body := request(h, "GET", ep, nil, cookie).Body.String(); !strings.Contains(body, "Synthetic &lt;lab&gt;") {
+	if body := request(h, "GET", ep+"/edit", nil, cookie).Body.String(); !strings.Contains(body, "Synthetic &lt;lab&gt;") {
 		t.Fatal("unescaped environment")
 	}
 	env.Set("name", "Renamed synthetic")
@@ -174,7 +174,7 @@ func TestIntegrationInventoryHTTP(t *testing.T) {
 	post(path+"/edit", archived, 303)
 	post(ep+"/edit", env, 409)
 	post(path+"/environments", env, 409)
-	if w := request(h, "GET", ep, nil, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "Renamed synthetic") {
+	if w := request(h, "GET", ep, nil, cookie); w.Code != 303 || !strings.Contains(w.Header().Get("Location"), "/manage/records?") {
 		t.Fatal("archive lost child")
 	}
 	archived.Set("status", "active")

@@ -57,7 +57,8 @@ func TestIntegrationEnrollmentHTTP(t *testing.T) {
 			t.Fatal(e)
 		}
 	})
-	path := fmt.Sprintf("/customers/%s/environments/%s/assets/%s/ssh", c.ID, env.ID, a.ID)
+	legacyPath := fmt.Sprintf("/customers/%s/environments/%s/assets/%s/ssh", c.ID, env.ID, a.ID)
+	path := "/servers/" + a.ID + "/connection"
 	if request(h, "GET", path, nil).Code != 401 {
 		t.Fatal("unauthenticated GET")
 	}
@@ -65,6 +66,9 @@ func TestIntegrationEnrollmentHTTP(t *testing.T) {
 		t.Fatal("unauthenticated POST")
 	}
 	cookie := authenticate(t, h)
+	if w := request(h, "GET", legacyPath, nil, cookie); w.Code != 200 {
+		t.Fatal("legacy enrollment compatibility", w.Code)
+	}
 	page := request(h, "GET", path, nil, cookie)
 	if page.Code != 200 {
 		t.Fatal(page.Code, page.Body.String())

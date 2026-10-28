@@ -24,11 +24,10 @@
   <a class="nav-item" href="/servers" {{if eq .Active "servers"}}aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v7H3z M3 14h18v7H3z M7 6h2 M7 17h2"/></svg>Servers</a>
   <a class="nav-item" href="/alerts" {{if eq .Active "monitoring"}}aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5z M10 21h4"/></svg>Alerts</a>
   <details class="manage-nav"><summary>Manage</summary>
-    <a class="nav-item" href="/customers" {{if eq .Active "customers"}}aria-current="page"{{end}}>Customers &amp; inventory</a>
+    <a class="nav-item" href="/customers" {{if eq .Active "customers"}}aria-current="page"{{end}}>Customers</a>
     <a class="nav-item" href="/scheduler" {{if eq .Active "scheduler"}}aria-current="page"{{end}}>Monitoring controls</a>
-    <a class="nav-item" href="/workspace" {{if eq .Active "workspace"}}aria-current="page"{{end}}>Quick Access</a>
+    <a class="nav-item" href="/manage/records" {{if eq .Active "records"}}aria-current="page"{{end}}>Advanced records</a>
     <a class="nav-item" href="/inventory/interchange" {{if eq .Active "interchange"}}aria-current="page"{{end}}>Import &amp; export</a>
-    <a class="nav-item" href="/settings" {{if eq .Active "settings"}}aria-current="page"{{end}}>Settings</a>
   </details>
   <div class="nav-footer"><span class="eyebrow">NOC Workbench</span><p>Infrastructure monitoring</p></div>
 </nav>

@@ -25,6 +25,7 @@ const scheduleColumns = `s.id::text,s.customer_id::text,s.environment_id::text,s
 func scanSchedule(row pgx.Row) (p scheduler.Profile, e error) {
 	var last, admitted, completed *time.Time
 	e = row.Scan(&p.ID, &p.CustomerID, &p.EnvironmentID, &p.AssetID, &p.Target.EndpointID, &p.Target.ProfileID, &p.Target.ProfileVersion, &p.PrincipalID, &p.Revision, &p.Collectors, &p.Interval, &p.Budget, &p.Enabled, &p.Authorized, &p.Paused, &p.NextDue, &last, &admitted, &completed, &p.RetryCount, &p.State, &p.Category, &p.LagSeconds, &p.Skipped)
+	p.OwnPaused = p.Paused
 	p.Target.AssetID = p.AssetID
 	if last != nil {
 		p.LastDispatch = *last
@@ -69,6 +70,7 @@ func (s *Store) Schedules(ctx context.Context, actor workspace.Principal) (sched
 			p.Eligible = false
 			p.Category = "cluster_limit"
 		}
+		p.OwnPaused = ownPaused
 		p.Paused = paused
 		p.Target.AssetID = p.AssetID
 		if last != nil {

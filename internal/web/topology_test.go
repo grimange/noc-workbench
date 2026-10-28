@@ -36,7 +36,10 @@ func TestIntegrationTopologyHTTP(t *testing.T) {
 	instance := create("instances", url.Values{"service_id": {sid}, "name": {"Synthetic instance"}, "role": {"worker"}, "instance_key": {"web-1"}, "lifecycle": {"active"}})
 	iid := instance[strings.LastIndex(instance, "/")+1:]
 	binding := create("bindings", url.Values{"service_instance_id": {iid}, "asset_id": {aid}, "binding_role": {"primary"}})
-	for _, p := range []string{base, base + "/clusters", cluster, asset, endpoint, member, service, instance, binding} {
+	if w := request(h, "GET", base, nil, cookie); w.Code != 303 || !strings.HasPrefix(w.Header().Get("Location"), "/manage/records?") {
+		t.Fatal("legacy landing redirect", w.Code)
+	}
+	for _, p := range []string{base + "/clusters", cluster, asset, endpoint, member, service, instance, binding} {
 		w := request(h, "GET", p, nil, cookie)
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "</html>") {
 			t.Fatalf("GET %s %d %s", p, w.Code, w.Body.String())

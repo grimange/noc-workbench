@@ -150,6 +150,9 @@ func TestIntegrationSchedulerPersistenceAuthorityAndRecovery(t *testing.T) {
 	// Asset/customer scope pauses block before any durable attempt/SSH.
 	for _, control := range []scheduler.Control{{Kind: "asset", ID: h.AssetID, Paused: true}, {Kind: "customer", ID: h.CustomerID, Paused: true}} {
 		must(db.SetScheduleControl(ctx, actor, control, time.Now().UTC()))
+		if got := latest(); !got.Paused || got.OwnPaused {
+			t.Fatal("independent pause provenance", got)
+		}
 		due()
 		if _, e = collect.Collect(scheduled, actor, target); e == nil {
 			t.Fatal("scope pause bypass")

@@ -67,16 +67,7 @@ func (s *Server) customerDetail(w http.ResponseWriter, r *http.Request) {
 		s.inventoryFailure(w, d, err)
 		return
 	}
-	d.Environments, err = s.inventory.ListEnvironments(r.Context(), d.Customer.ID)
-	if err != nil {
-		s.inventoryFailure(w, d, err)
-		return
-	}
-	if r.URL.Query().Get("saved") == "1" {
-		d.Notice = "Customer saved."
-	}
-	s.workspaceVisit(r, "customers", d.Customer.ID)
-	s.render(w, "customer-detail.html", d)
+	http.Redirect(w, r, "/manage/records?customer="+d.Customer.ID, http.StatusSeeOther)
 }
 func (s *Server) customerForm(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.inventoryPage(w, r)
@@ -110,7 +101,11 @@ func (s *Server) customerForm(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err == nil {
-			http.Redirect(w, r, "/customers/"+c.ID+"?saved=1", http.StatusSeeOther)
+			if r.PostForm.Get("return") == "registration" {
+				http.Redirect(w, r, "/servers/new?customer="+c.ID, http.StatusSeeOther)
+			} else {
+				http.Redirect(w, r, "/customers/"+c.ID+"?saved=1", http.StatusSeeOther)
+			}
 			return
 		}
 		if !errors.As(err, &d.Fields) {
@@ -138,11 +133,7 @@ func (s *Server) environmentDetail(w http.ResponseWriter, r *http.Request) {
 		s.inventoryFailure(w, d, err)
 		return
 	}
-	if r.URL.Query().Get("saved") == "1" {
-		d.Notice = "Environment saved."
-	}
-	s.workspaceVisit(r, "environments", d.Environment.ID)
-	s.render(w, "environment-detail.html", d)
+	http.Redirect(w, r, "/manage/records?customer="+d.Customer.ID+"&environment="+d.Environment.ID, http.StatusSeeOther)
 }
 func (s *Server) environmentForm(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.inventoryPage(w, r)

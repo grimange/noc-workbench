@@ -31,6 +31,7 @@ type Profile struct {
 	Collectors                                                     []string
 	Interval, Budget, RetryCount                                   int
 	Enabled, Authorized, Paused, Eligible                          bool
+	OwnPaused                                                      bool // Persisted profile pause; Paused in snapshots also includes scoped pauses.
 	State, Category                                                string
 	NextDue, LastDispatch, AdmittedAt, CompletedAt                 time.Time
 	LagSeconds                                                     float64

@@ -211,10 +211,6 @@ func (s *Store) WorkspaceChange(ctx context.Context, scope workspace.Scope, p wo
 		}
 	case "link.remove":
 		exec(`DELETE FROM external_link WHERE target_id=$1 AND principal_id=$2 AND id=$3`, ref, p.ID, c.ID)
-	case "command.copy":
-		if current.Kind != "endpoints" {
-			return workspace.ErrDenied
-		}
 	default:
 		return workspace.ErrDenied
 	}

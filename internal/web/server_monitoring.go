@@ -60,7 +60,9 @@ func (s *Server) serverRuntime(r *http.Request, v workspace.ServerDetail, in hea
 				live = true
 			}
 		}
-		d.Enabled = live && p.Enabled && p.Authorized && (p.Eligible || p.EvidenceEligible) && !p.Paused && !snap.Paused && !snap.Stopped && slices.Contains(p.Collectors, services.Collector)
+		m := maintenance(v.Server, p, snap)
+		d.Paused = len(m.Blockers) > 0
+		d.Enabled = live && !d.Paused && p.Enabled && p.Authorized && (p.Eligible || p.EvidenceEligible) && !p.Paused && !snap.Paused && !snap.Stopped && slices.Contains(p.Collectors, services.Collector)
 		if d.Enabled {
 			d.Status = "Monitoring enabled"
 		} else if p.Enabled {

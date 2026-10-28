@@ -10,7 +10,7 @@ import (
 func TestIntegrationWorkspaceHTTP(t *testing.T) {
 	h := inventoryFixture(t)
 	cookie := authenticate(t, h)
-	w := request(h, "GET", "/workspace", nil, cookie)
+	w := request(h, "GET", "/servers/new", nil, cookie)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -47,7 +47,7 @@ func TestIntegrationWorkspaceHTTP(t *testing.T) {
 			t.Fatal("missing csrf", path)
 		}
 	}
-	post(cq, url.Values{"operation": {"pin"}}, 303)
+	post(cq, url.Values{"operation": {"pin"}}, 410)
 	post(cq, url.Values{"operation": {"note.save"}, "body": {"Synthetic <script>alert(1)</script> runbook"}, "visibility": {"private"}}, 303)
 	w = request(h, "GET", cq, nil, cookie)
 	if w.Code != 200 || strings.Contains(w.Body.String(), "<script>alert(1)</script>") || !strings.Contains(w.Body.String(), "&lt;script&gt;") {
@@ -86,15 +86,11 @@ func TestIntegrationWorkspaceHTTP(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `href="https://rtm.example.invalid/"`) {
 		t.Fatal("re-enabled link unavailable")
 	}
-	post(aq, url.Values{"operation": {"command.copy"}}, 403)
-	post(eq, url.Values{"operation": {"command.copy"}}, 200)
-	w = request(h, "POST", eq, url.Values{"csrf": {csrf}, "operation": {"command.copy"}}, cookie)
-	if !strings.Contains(w.Body.String(), "StrictHostKeyChecking=yes") || !strings.Contains(w.Body.String(), "ssh.example.invalid") {
-		t.Fatal("missing bounded command")
-	}
+	post(aq, url.Values{"operation": {"command.copy"}}, 410)
+	post(eq, url.Values{"operation": {"command.copy"}}, 410)
 	for _, q := range []string{"runbo", "ssh", "Synthetic", "' OR 1=1 --", "<script>"} {
 		w = request(h, "GET", "/workspace?q="+url.QueryEscape(q), nil, cookie)
-		if w.Code != 200 || strings.Contains(w.Body.String(), "<script>") {
+		if w.Code != 303 || w.Header().Get("Location") != "/servers?q="+url.QueryEscape(q) {
 			t.Fatal("search", q, w.Code)
 		}
 	}
@@ -107,8 +103,8 @@ func TestIntegrationWorkspaceHTTP(t *testing.T) {
 		t.Fatal("missing target")
 	}
 	post(cluster+"/edit", url.Values{"name": {"Synthetic cluster"}, "type": {"generic"}, "lifecycle": {"archived"}}, 303)
-	post(cq, url.Values{"operation": {"pin"}}, 409)
-	if request(h, "GET", "/workspace?offset=-1", nil, cookie).Code != 400 {
+	post(cq, url.Values{"operation": {"pin"}}, 410)
+	if request(h, "GET", "/workspace?offset=-1", nil, cookie).Code != 303 {
 		t.Fatal("negative page")
 	}
 }

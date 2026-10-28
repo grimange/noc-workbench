@@ -19,6 +19,10 @@ type dashboardData struct {
 	Counts                fleetCounts
 }
 type serverData struct {
+	NotesTarget       workspace.Target
+	Notes             []workspace.Note
+	ContextLinks      []contextualLinks
+	Maintenance       maintenanceData
 	View              consolePresentation
 	Detail            workspace.ServerDetail
 	Base, Inventory   string
@@ -139,6 +143,7 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(rows) > 0 {
 			d.Server.View = rows[0].View
+			d.Server.Maintenance = rows[0].Maintenance
 		}
 		filtered := d.Server.Result.Readings[:0]
 		for _, reading := range d.Server.Result.Readings {
@@ -149,21 +154,15 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 		d.Server.Result.Readings = filtered
 		d.Server.EvidenceAvailable = true
 	}
+	if r.URL.Query().Get("maintenance") == "saved" {
+		d.Notice = "Maintenance action saved. Current monitoring blockers are shown below."
+	}
+	if err := s.serverNotes(r, &d); err != nil {
+		s.inventoryFailure(w, d, err)
+		return
+	}
 	s.render(w, "server.html", d)
 }
-func (s *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
-	session, ok := s.session(w, r)
-	if !ok {
-		return
-	}
-	label, err := s.store.GetNote(r.Context())
-	if err != nil {
-		http.Error(w, "storage unavailable", 503)
-		return
-	}
-	s.render(w, "settings.html", pageData{CSRF: session.CSRFToken, Label: label, Active: "settings"})
-}
-
 func consoleOffset(r *http.Request) (int, error) {
 	offset := 0
 	if v := r.URL.Query().Get("offset"); v != "" {

@@ -65,8 +65,6 @@ func (s Service) Change(ctx context.Context, p Principal, t Target, c Change) er
 		permission = NotesWrite
 	case "link.save", "link.remove":
 		permission = LinksWrite
-	case "command.copy":
-		permission = CommandCopy
 	case "pin", "unpin", "visit":
 	default:
 		return ErrDenied
@@ -90,9 +88,6 @@ func (s Service) Change(ctx context.Context, p Principal, t Target, c Change) er
 		}
 	}
 	if c.Operation == "pin" && t.Kind != "customers" && t.Kind != "clusters" && t.Kind != "assets" {
-		return ErrDenied
-	}
-	if c.Operation == "command.copy" && t.Kind != "endpoints" {
 		return ErrDenied
 	}
 	return s.Repository.WorkspaceChange(ctx, scope, p, t, c)

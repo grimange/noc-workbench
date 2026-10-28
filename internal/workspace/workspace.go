@@ -4,7 +4,6 @@ package workspace
 
 import (
 	"errors"
-	"fmt"
 	"net/url"
 	"noc-workbench/internal/inventory"
 	"strconv"
@@ -26,7 +25,6 @@ const (
 	NotesRead       Permission = "notes.read"
 	NotesWrite      Permission = "notes.write"
 	LinksWrite      Permission = "links.write"
-	CommandCopy     Permission = "connections.command.copy"
 )
 
 var ErrLimit = errors.New("This collection is limited to 100 records. Remove an existing record before adding another.")
@@ -49,7 +47,7 @@ func (LocalOperatorPolicy) Scope(p Principal, permission Permission) (Scope, err
 		return Scope{}, ErrDenied
 	}
 	switch permission {
-	case ScheduleManage, Search, Organize, NotesRead, NotesWrite, LinksWrite, CommandCopy, InventoryExport, InventoryImport:
+	case ScheduleManage, Search, Organize, NotesRead, NotesWrite, LinksWrite, InventoryExport, InventoryImport:
 		return Scope{All: true}, nil
 	}
 	return Scope{}, ErrDenied
@@ -137,15 +135,6 @@ func ValidateLink(label, raw, kind string) error {
 		return nil
 	}
 	return errors.New("Choose a supported link type.")
-}
-func SSHCommand(e inventory.Endpoint) (string, error) {
-	checked, err := inventory.ValidateEndpoint(e)
-	if err != nil || checked.Protocol != "ssh" || checked.Status != "active" {
-		return "", errors.New("Choose an active enrolled SSH endpoint.")
-	}
-	// No inherited SSH config, proxy command, secret, identity file or remote command.
-	// Host validation excludes quotes/metacharacters; -- prevents option interpretation.
-	return fmt.Sprintf("ssh -F /dev/null -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ClearAllForwardings=yes -p %d -- '%s'", checked.Port, checked.Host), nil
 }
 
 type Change struct {

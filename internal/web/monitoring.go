@@ -10,6 +10,7 @@ import (
 	"noc-workbench/internal/health"
 	"noc-workbench/internal/inventory"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,11 +20,12 @@ type monitoringItem struct {
 	View  alerts.View
 }
 type monitoringData struct {
-	View                       alerts.View
-	Series                     alerts.Series
-	Evaluation                 health.Evaluation
-	Items                      []monitoringItem
-	Base, Hours, Key, Resource string
+	View                                  alerts.View
+	Series                                alerts.Series
+	Evaluation                            health.Evaluation
+	Items                                 []monitoringItem
+	Base, Hours, Key, Resource            string
+	DetailURL, CollectionURL, EvidenceURL string
 }
 
 func requestScope(r *http.Request) collection.HistoryScope {
@@ -81,6 +83,9 @@ func (s *Server) assetMonitoring(w http.ResponseWriter, r *http.Request) {
 	h := requestScope(r)
 	base := scopeBase(h)
 	d.Action = base + "/monitoring"
+	if strings.HasPrefix(r.URL.Path, "/servers/") {
+		d.Action = "/servers/" + h.AssetID + "/history"
+	}
 	// Prove resource ownership before reads and mutations, including acknowledgment.
 	v, e := repo.AlertView(r.Context(), operatorPrincipal(), h)
 	if e != nil {
@@ -161,6 +166,14 @@ func (s *Server) assetMonitoring(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		s.inventoryFailure(w, d, e)
 		return
+	}
+	d.Monitoring.DetailURL = base + "/linux"
+	d.Monitoring.CollectionURL = base + "/linux"
+	d.Monitoring.EvidenceURL = base + "/evaluation"
+	if d.Enrollment.Asset.Kind == "server" {
+		d.Monitoring.DetailURL = "/servers/" + h.AssetID
+		d.Monitoring.CollectionURL = "/servers/" + h.AssetID + "/collection"
+		d.Monitoring.EvidenceURL = "/servers/" + h.AssetID + "/evidence"
 	}
 	d.Active = "monitoring"
 	s.render(w, "monitoring.html", d)

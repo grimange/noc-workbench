@@ -16,10 +16,11 @@ import (
 
 type consoleServer struct {
 	workspace.Server
-	View      consolePresentation
-	Resources resourceData
-	Runtime   runtimeData
-	Discovery vicidialdiscovery.Result
+	Maintenance maintenanceData
+	View        consolePresentation
+	Resources   resourceData
+	Runtime     runtimeData
+	Discovery   vicidialdiscovery.Result
 }
 type consoleRepository interface {
 	ServerEvidence(context.Context, workspace.Scope, []string, time.Time) ([]health.Input, []connections.Record, error)
@@ -58,9 +59,9 @@ func (s *Server) consoleServers(r *http.Request, scope workspace.Scope, servers 
 		byID[in.Scope.AssetID] = in
 	}
 	for i, v := range out {
-		in, ok := byID[v.ID]
-		if !ok {
-			continue
+		in, exists := byID[v.ID]
+		if !exists {
+			in.At = s.now().UTC()
 		}
 		d := v.Runtime
 		d.Available = s.options.Scheduler != nil && s.options.Enrollment != nil
@@ -92,7 +93,8 @@ func (s *Server) consoleServers(r *http.Request, scope workspace.Scope, servers 
 		} else if p.Category == "authentication_failed" || p.Category == "permission_denied" {
 			d.AuthorizationDiagnostic = "SSH authentication / authorization problem"
 		}
-		d.Paused = p.Paused || snap.Paused || snap.Stopped
+		out[i].Maintenance = maintenance(v.Server, p, snap)
+		d.Paused = len(out[i].Maintenance.Blockers) > 0
 		in.IntervalSeconds = p.Interval
 		for _, rec := range records {
 			if rec.AssetID == v.ID && rec.Target() == p.Target && !live[rec.ID] && d.AuthorizationDiagnostic == "" {

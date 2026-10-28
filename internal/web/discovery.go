@@ -59,6 +59,9 @@ func (s *Server) linuxDiscovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Action = "/customers/" + d.Customer.ID + "/environments/" + d.Environment.ID + "/assets/" + d.Enrollment.Asset.ID + "/linux"
+	if d.Enrollment.Asset.Kind == "server" {
+		d.Action = "/servers/" + d.Enrollment.Asset.ID + "/collection"
+	}
 	d.Enrollment.Records, err = svc.List(r.Context(), operatorPrincipal(), d.Customer.ID, d.Environment.ID, d.Enrollment.Asset.ID)
 	if err != nil {
 		s.inventoryFailure(w, d, err)

@@ -45,7 +45,6 @@ type Store interface {
 	Session(context.Context, string) (postgres.Session, error)
 	DeleteSession(context.Context, string) error
 	GetNote(context.Context) (string, error)
-	SetNote(context.Context, string) error
 }
 type Options struct {
 	VICIdialAPI           *vicidialapi.Service
@@ -69,6 +68,7 @@ type Server struct {
 	now       func() time.Time
 }
 type pageData struct {
+	Registration                                               registrationData
 	Dashboard                                                  dashboardData
 	Server                                                     serverData
 	API                                                        apiData
@@ -104,7 +104,7 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial/api", s.vicidialAPI)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial", s.vicidialContext)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/clusters/{cluster}/vicidial", s.vicidialContext)
-	mux.HandleFunc("GET /monitoring", s.monitoringOverview)
+	mux.HandleFunc("GET /monitoring", s.compatibility("/alerts"))
 	mux.HandleFunc("GET /alerts", s.monitoringOverview)
 	mux.HandleFunc("GET /customers/{customer}/environments/{environment}/assets/{asset}/monitoring", s.assetMonitoring)
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/monitoring", s.assetMonitoring)
@@ -120,7 +120,7 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("POST /customers/{customer}/environments/{environment}/assets/{asset}/ssh", s.sshEnrollment)
 	mux.HandleFunc("GET /inventory/interchange", s.inventoryInterchange)
 	mux.HandleFunc("POST /inventory/interchange", s.inventoryInterchange)
-	mux.HandleFunc("GET /workspace", s.operatorWorkspace)
+	mux.HandleFunc("GET /workspace", s.compatibility("/servers"))
 	mux.HandleFunc("GET /workspace/{targetkind}/{targetid}", s.operatorWorkspace)
 	mux.HandleFunc("POST /workspace/{targetkind}/{targetid}", s.operatorWorkspace)
 	mux.HandleFunc("GET /healthz", s.health)
@@ -129,11 +129,23 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("GET /{$}", s.home)
 	mux.HandleFunc("GET /servers", s.home)
 	mux.HandleFunc("POST /logout", s.logout)
-	mux.HandleFunc("POST /settings", s.settings)
-	mux.HandleFunc("GET /settings", s.settingsPage)
+	mux.HandleFunc("POST /settings", s.compatibility("/"))
+	mux.HandleFunc("GET /settings", s.compatibility("/"))
+	mux.HandleFunc("GET /manage/records", s.manageRecords)
+	mux.HandleFunc("GET /servers/{asset}/history", s.serverContext(s.assetMonitoring))
+	mux.HandleFunc("POST /servers/{asset}/history", s.serverContext(s.assetMonitoring))
+	mux.HandleFunc("GET /servers/{asset}/collection", s.serverContext(s.linuxDiscovery))
+	mux.HandleFunc("POST /servers/{asset}/collection", s.serverContext(s.linuxDiscovery))
+	mux.HandleFunc("GET /servers/{asset}/evidence", s.serverContext(s.assetEvaluation))
+	mux.HandleFunc("POST /servers/{asset}/evidence", s.serverContext(s.assetEvaluation))
+	mux.HandleFunc("GET /servers/new", s.registerServer)
+	mux.HandleFunc("POST /servers/new", s.registerServer)
+	mux.HandleFunc("GET /servers/{asset}/connection", s.serverContext(s.sshEnrollment))
+	mux.HandleFunc("POST /servers/{asset}/connection", s.serverContext(s.sshEnrollment))
 	mux.HandleFunc("GET /servers/{asset}", s.serverDetails)
 	mux.HandleFunc("POST /servers/{asset}/discovery", s.serverDiscovery)
 	mux.HandleFunc("POST /servers/{asset}/monitoring", s.serverMonitoring)
+	mux.HandleFunc("POST /servers/{asset}/maintenance", s.serverMaintenance)
 	mux.HandleFunc("GET /customers", s.customers)
 	mux.HandleFunc("GET /customers/new", s.customerForm)
 	mux.HandleFunc("POST /customers", s.customerForm)
@@ -337,22 +349,6 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	s.cookie(w, "nw_session", "", s.now().Add(-time.Hour))
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
-func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
-	_, ok := s.mutation(w, r)
-	if !ok {
-		return
-	}
-	label := strings.TrimSpace(r.PostForm.Get("label"))
-	if len(label) > 120 {
-		http.Error(w, "label too long", http.StatusBadRequest)
-		return
-	}
-	if err := s.store.SetNote(r.Context(), label); err != nil {
-		http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
 
 // Binding the lookup digest to the credential hash revokes old sessions on password rotation.
 func (s *Server) sessionKey(token string) string {
@@ -367,7 +363,7 @@ func requestBudget(path string) time.Duration {
 	if strings.HasSuffix(path, "/vicidial/api") {
 		return 22 * time.Second
 	}
-	if strings.HasSuffix(path, "/ssh") || strings.HasSuffix(path, "/linux") || strings.HasSuffix(path, "/discovery") {
+	if strings.HasSuffix(path, "/collection") || strings.HasSuffix(path, "/connection") || strings.HasSuffix(path, "/ssh") || strings.HasSuffix(path, "/linux") || strings.HasSuffix(path, "/discovery") {
 		return 12 * time.Second
 	}
 	return 3 * time.Second

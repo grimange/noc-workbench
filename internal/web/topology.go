@@ -72,6 +72,10 @@ func (s *Server) topology(w http.ResponseWriter, r *http.Request) {
 	}
 	base := "/customers/" + d.Customer.ID + "/environments/" + d.Environment.ID + "/topology"
 	kind := r.PathValue("kind")
+	if kind == "" {
+		http.Redirect(w, r, "/manage/records?customer="+d.Customer.ID+"&environment="+d.Environment.ID, http.StatusSeeOther)
+		return
+	}
 	id := r.PathValue("record")
 	edit := r.PathValue("operation") == "edit"
 	remove := r.PathValue("operation") == "remove"
@@ -479,7 +483,6 @@ func (s *Server) topology(w http.ResponseWriter, r *http.Request) {
 	}
 	if id != "" {
 		d.Topology.Removing = kind == "memberships" || kind == "bindings"
-		s.workspaceVisit(r, kind, id)
 		s.render(w, "topology-detail.html", d)
 		return
 	}

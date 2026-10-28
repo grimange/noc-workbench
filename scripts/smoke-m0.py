@@ -85,17 +85,17 @@ try:
     assert status == 200 and "Dashboard" in html
     csrf = token(html)
     assert request("/settings", {"label": "forged"})[0] == 403
-    assert request("/settings", {"label": "synthetic persisted workspace"}, csrf)[0] == 200
-    assert "synthetic persisted workspace" in request("/")[1]
+    assert request("/settings", {"label": "synthetic persisted workspace"}, csrf)[0] == 410
+    original_label = subprocess.check_output(compose + ["exec", "-T", "db", "psql", "-U", "noc_workbench", "-d", "noc_workbench", "-Atc", "SELECT note FROM operator_setting WHERE id=1"], text=True).strip()
     assert request("/static/app.css")[0] == 200
     # A real HTTP inventory write must survive both application and DB restarts.
     status, html = request("/customers", {"csrf": csrf, "display_name": "Synthetic lifecycle customer",
         "short_code": "SMOKE", "notes": "Synthetic fixture only", "status": "active"})
-    assert status == 200 and "Customer saved." in html
+    assert status == 200 and "Synthetic lifecycle customer" in html
     customer_path = re.search(r'href="(/customers/[a-f0-9-]+/edit)"', html)[1].removesuffix("/edit")
     status, html = request(customer_path + "/environments", {"csrf": csrf,
         "name": "Synthetic lab", "kind": "lab", "status": "active"})
-    assert status == 200 and "Environment saved." in html
+    assert status == 200 and "Synthetic lab" in html
     environment_path = re.search(r'href="(/customers/[a-f0-9-]+/environments/[a-f0-9-]+/edit)"', html)[1].removesuffix("/edit")
     topology = environment_path + "/topology"
     topology_paths = []
@@ -113,7 +113,8 @@ try:
     instance_id = create_topology("instances", {"service_id": service_id, "name": "Synthetic lifecycle instance", "lifecycle": "active"})
     create_topology("bindings", {"service_instance_id": instance_id, "asset_id": asset_id, "binding_role": "primary"})
     quick = "/workspace/clusters/" + cluster_id
-    for fields in [{"operation": "pin"}, {"operation": "note.save", "body": "Synthetic persisted runbook", "visibility": "private"}, {"operation": "link.save", "label": "Synthetic RTM", "url": "https://rtm.example.invalid/", "type": "rtm", "pinned": "on"}]:
+    assert request(quick, {"operation": "pin", "csrf": csrf})[0] == 410
+    for fields in [{"operation": "note.save", "body": "Synthetic persisted runbook", "visibility": "private"}, {"operation": "link.save", "label": "Synthetic RTM", "url": "https://rtm.example.invalid/", "type": "rtm", "pinned": "on"}]:
         assert request(quick, dict(fields, csrf=csrf))[0] == 200
     # The complete synthetic interchange must persist through database restart/restore.
     example = pathlib.Path("internal/interchange/example.json").read_text()
@@ -136,7 +137,7 @@ try:
     subprocess.run(compose + ["up", "-d", "--wait"], check=True, stdout=subprocess.DEVNULL)
     start()
     status, html = request("/")
-    assert status == 200 and "synthetic persisted workspace" in html, "state/session lost after restart"
+    assert status == 200 and "Dashboard" in html, "state/session lost after restart"
     assert "Synthetic lifecycle customer" in request(customer_path)[1], "customer lost after restart"
     assert "Synthetic lab" in request(environment_path)[1], "environment lost after restart"
     for path in topology_paths:
@@ -144,7 +145,7 @@ try:
     status, quick_html = request(quick)
     assert status == 200 and "Synthetic persisted runbook" in quick_html and "Synthetic RTM" in quick_html, "notes/links lost after restart"
     workspace_html = request("/workspace?q=runbook")[1]
-    assert workspace_html.count("Synthetic lifecycle cluster") >= 3, "search/pin/recent lost after restart"
+    assert "Servers" in workspace_html, "legacy search redirect lost after restart"
     assert request("/inventory/interchange?download=sanitized")[1] == after_import, "interchange restart lost topology"
     # Prove the release backup format restores using only this disposable cluster.
     container = subprocess.check_output(compose + ["ps", "-q", "db"], text=True).strip()
@@ -155,7 +156,7 @@ try:
         backup.seek(0)
         subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "noc_workbench", "-d", "nw_restore_smoke", "--exit-on-error"], stdin=backup, check=True)
     restored = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT (SELECT count(*) FROM schema_migration),(SELECT count(*) FROM customer),(SELECT count(*) FROM environment),(SELECT note FROM operator_setting WHERE id=1),(SELECT count(*) FROM workspace_pin),(SELECT count(*) FROM operator_note),(SELECT count(*) FROM external_link),(SELECT count(*) FROM workspace_principal)"], text=True).strip()
-    assert restored == "16|3|3|synthetic persisted workspace|1|1|1|1", "database backup restore mismatch"
+    assert restored == "16|3|3|" + original_label + "|0|1|1|1", "database backup restore mismatch"
     restored_count = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT count(*) FROM service_instance_host"], text=True).strip()
     assert int(restored_count) == 8, "imported host bindings lost in restore"
     subprocess.run(dbtools + ["dropdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)
@@ -170,7 +171,7 @@ try:
     for secret in [env["NOC_DB_PASSWORD"], env["NOC_DATABASE_URL"], env["NOC_PASSWORD_HASH"], "synthetic-smoke-password"]:
         assert secret not in output, "credential in process logs"
     assert '"msg":"application stopped"' in output
-    print("PASS: process startup, health/HTML/assets, login failure/success, auth/CSRF, DB outage, bounded failure, app+DB restart settings/session/customer/environment/topology/pins/recent/notes/links persistence, interchange idempotency/restart and database backup/restore, logout, invalid config, graceful shutdown and sanitized logs")
+    print("PASS: process startup, health/HTML/assets, login failure/success, auth/CSRF, DB outage, bounded failure, app+DB restart session/customer/environment/topology/notes/links persistence and retired UI boundaries, interchange idempotency/restart and database backup/restore, logout, invalid config, graceful shutdown and sanitized logs")
 finally:
     stop()
     log.close()

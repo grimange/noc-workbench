@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"noc-workbench/internal/inventory"
 	"strings"
 	"testing"
 )
@@ -43,30 +42,5 @@ func TestPolicyAndValidation(t *testing.T) {
 	}
 	if _, e := Query(strings.Repeat("x", 121)); e == nil {
 		t.Fatal("unbounded query")
-	}
-}
-func TestSSHCommand(t *testing.T) {
-	for _, host := range []string{"192.0.2.1", "2001:db8::1", "ssh.example.invalid"} {
-		e := inventory.Endpoint{EnvironmentID: OperatorID, AssetID: OperatorID, Protocol: "ssh", Host: host, Port: 2222, Status: "active"}
-		cmd, err := SSHCommand(e)
-		if err != nil || !strings.Contains(cmd, "-p 2222 -- '"+host+"'") || !strings.Contains(cmd, "-F /dev/null") {
-			t.Fatal(cmd, err)
-		}
-	}
-	for _, host := range []string{"-oProxyCommand=id", "x;id", "$(id)", "x'$(id)'", "x\n-oProxyCommand=id", "x y", "[2001:db8::1]"} {
-		if _, e := SSHCommand(inventory.Endpoint{EnvironmentID: OperatorID, AssetID: OperatorID, Protocol: "ssh", Host: host, Port: 22, Status: "active"}); e == nil {
-			t.Fatal("command injection", host)
-		}
-	}
-}
-
-func TestSSHCommandLifecycleAndProtocol(t *testing.T) {
-	for _, e := range []inventory.Endpoint{
-		{EnvironmentID: OperatorID, AssetID: OperatorID, Protocol: "https", Host: "ssh.example.invalid", Port: 22, Status: "active"},
-		{EnvironmentID: OperatorID, AssetID: OperatorID, Protocol: "ssh", Host: "ssh.example.invalid", Port: 22, Status: "archived"},
-	} {
-		if _, err := SSHCommand(e); err == nil {
-			t.Fatal("non-SSH or inactive endpoint accepted")
-		}
 	}
 }

@@ -46,6 +46,9 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Action = "/customers/" + d.Customer.ID + "/environments/" + d.Environment.ID + "/assets/" + d.Enrollment.Asset.ID + "/ssh"
+	if d.Enrollment.Asset.Kind == "server" {
+		d.Action = "/servers/" + d.Enrollment.Asset.ID + "/connection"
+	}
 	status := 200
 	if r.Method == http.MethodPost {
 		action := r.PostForm.Get("action")

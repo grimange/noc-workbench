@@ -107,7 +107,7 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 	cookie := authenticate(t, h)
 	path := "/servers/" + asset.ID
 	page := request(h, "GET", path, nil, cookie)
-	if page.Code != 200 || exec.calls != 0 || !strings.Contains(page.Body.String(), "Enrollment and baseline monitoring authority") {
+	if page.Code != 200 || exec.calls != 0 || !strings.Contains(page.Body.String(), "Connection settings and baseline monitoring authority") {
 		t.Fatal("passive read or form", page.Code)
 	}
 	token := regexp.MustCompile(`name="csrf" value="([a-f0-9]{64})"`).FindStringSubmatch(page.Body.String())
@@ -149,14 +149,14 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 			t.Fatal("passive SSH")
 		}
 	}
-	for _, text := range []string{"Application process observations", "Monitoring enabled", "Process running", "mariadb.service", "apache2.service", "linux.services v1", "Historical / last observed:", "Freshness: fresh", "observation "} {
+	for _, text := range []string{"Application process observations", "Background monitoring · 60-second target", "Process running", "mariadb.service", "apache2.service", "linux.services v1", "Historical / last observed:", "Freshness: fresh", "observation "} {
 		if !strings.Contains(page.Body.String(), text) {
 			t.Fatal("missing evidence", text, page.Body.String())
 		}
 	}
 	// Dashboard bulk reader must show the same persisted state without SSH.
 	dashboard := request(h, "GET", "/", nil, cookie)
-	for _, text := range []string{"Synthetic installation", "Monitoring enabled", "Service issues", "Unknown — baseline evidence unavailable", "Topology: Unknown", "PHT"} {
+	for _, text := range []string{"Synthetic installation", "Reachable", "Service issues", "Unknown — baseline evidence unavailable", "Topology: Unknown", "PHT"} {
 		if dashboard.Code != 200 || !strings.Contains(dashboard.Body.String(), text) {
 			t.Fatal("dashboard evidence", text, dashboard.Body.String())
 		}
@@ -167,6 +167,74 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 	if !strings.Contains(page.Body.String(), "asterisk.service · stopped") {
 		t.Fatal("lost independent unit state")
 	}
+	// Contextual recovery uses canonical server identity, preserving independent
+	// scoped/profile/inherited controls without any collector execution.
+	maintenancePath := path + "/maintenance"
+	maintenancePost := func(action string, want int) {
+		t.Helper()
+		current, err := schedules.Status(ctx, p)
+		must(err)
+		f := url.Values{"csrf": {token[1]}, "schedule_revision": {fmt.Sprint(current.Profiles[0].Revision)}, "action": {action}}
+		w := request(h, "POST", maintenancePath, f, cookie)
+		if w.Code != want {
+			t.Fatalf("maintenance %s: %d %s", action, w.Code, w.Body.String())
+		}
+	}
+	if request(h, "POST", maintenancePath, nil).Code != 401 || request(h, "POST", maintenancePath, nil, cookie).Code != 403 {
+		t.Fatal("maintenance auth/CSRF")
+	}
+	for _, broad := range []scheduler.Control{
+		{Kind: "customer", ID: rec.CustomerID, Paused: true},
+		{Kind: "global", Action: "pause", Paused: true},
+		{Kind: "global", Action: "stop", Stopped: true},
+	} {
+		must(schedules.Control(ctx, p, broad))
+		maintenancePost("resume", 409)
+		maintenancePost("pause", 303)
+		current, err := schedules.Status(ctx, p)
+		must(err)
+		if current.Profiles[0].OwnPaused {
+			t.Fatal("asset pause fabricated profile pause")
+		}
+		maintenancePost("resume", 303)
+		current, err = schedules.Status(ctx, p)
+		must(err)
+		m := maintenance(workspace.Server{ID: asset.ID, CustomerID: rec.CustomerID}, current.Profiles[0], current)
+		if len(m.Blockers) == 0 || m.AssetPaused || m.CanResume {
+			t.Fatal("inherited blocker cleared", m)
+		}
+		broad.Paused = false
+		broad.Stopped = false
+		if broad.Action == "stop" {
+			broad.Action = "release"
+		} else {
+			broad.Action = "resume"
+		}
+		must(schedules.Control(ctx, p, broad))
+	}
+	current, err := schedules.Status(ctx, p)
+	must(err)
+	profile := current.Profiles[0]
+	profile.Paused = true
+	_, err = schedules.Save(ctx, p, profile)
+	must(err)
+	maintenancePost("pause", 303)
+	current, err = schedules.Status(ctx, p)
+	must(err)
+	m := maintenance(workspace.Server{ID: asset.ID, CustomerID: rec.CustomerID}, current.Profiles[0], current)
+	if !m.ProfilePaused || !m.AssetPaused {
+		t.Fatal("combined blockers lost", m)
+	}
+	maintenancePost("resume", 303)
+	current, err = schedules.Status(ctx, p)
+	must(err)
+	if current.Profiles[0].Paused || current.Profiles[0].OwnPaused {
+		t.Fatal("combined resume failed")
+	}
+	if exec.calls != 1 {
+		t.Fatal("maintenance triggered collection")
+	}
+	snap = current
 	// A passive credential-catalog change must invalidate current runtime even
 	// though the persisted connection profile and prior samples are unchanged.
 	catalog, e := os.ReadFile(lab.Catalog)
@@ -177,11 +245,20 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 		t.Fatal("revoked credential presented current runtime", page.Body.String())
 	}
 	dashboard = request(h, "GET", "/", nil, cookie)
-	if dashboard.Code != 200 || !strings.Contains(dashboard.Body.String(), "Monitoring inactive") || exec.calls != 1 {
+	if dashboard.Code != 200 || !strings.Contains(dashboard.Body.String(), "SSH authentication / authorization problem") || exec.calls != 1 {
 		t.Fatal("revoked dashboard evidence", dashboard.Body.String())
+	}
+	// Clearing a scoped pause cannot re-authorize a revoked credential.
+	maintenancePost("pause", 303)
+	maintenancePost("resume", 303)
+	page = request(h, "GET", path, nil, cookie)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "SSH authentication / authorization problem") || strings.Contains(page.Body.String(), "<strong>Process running</strong>") || exec.calls != 1 {
+		t.Fatal("maintenance restored revoked authority", page.Body.String())
 	}
 	must(os.WriteFile(lab.Catalog, catalog, 0600))
 	// An explicitly paused schedule is not resumed by runtime enable.
+	snap, e = schedules.Status(ctx, p)
+	must(e)
 	own := snap.Profiles[0]
 	own.Paused = true
 	_, e = schedules.Save(ctx, p, own)

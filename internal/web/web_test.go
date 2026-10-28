@@ -132,12 +132,12 @@ func TestAuthenticationCSRFAndLogout(t *testing.T) {
 			t.Fatalf("CSRF %d", w.Code)
 		}
 	}
-	if w := request(h, "POST", "/settings", url.Values{"csrf": {s.CSRFToken}, "label": {"<script>test</script>"}}, c); w.Code != 303 {
+	if w := request(h, "POST", "/settings", url.Values{"csrf": {s.CSRFToken}, "label": {"<script>test</script>"}}, c); w.Code != 410 {
 		t.Fatalf("mutation %d", w.Code)
 	}
 	w := request(h, "GET", "/settings", nil, c)
-	if w.Code != 200 || strings.Contains(w.Body.String(), "<script>") || !strings.Contains(w.Body.String(), "&lt;script&gt;") {
-		t.Fatal("HTML escaping/landing")
+	if w.Code != 303 || w.Header().Get("Location") != "/" || strings.Contains(m.label, "script") {
+		t.Fatal("retired settings mutated storage or lost compatibility redirect")
 	}
 	if w = request(h, "POST", "/logout", url.Values{"csrf": {s.CSRFToken}}, c); w.Code != 303 {
 		t.Fatal("logout")
@@ -338,7 +338,7 @@ func TestHTTPSProxyAuthentication(t *testing.T) {
 			if status, _ := post("/settings", form, "http://"+target.Host); status != 403 {
 				t.Fatalf("backend origin accepted through TLS proxy: %d", status)
 			}
-			if status, html := post("/settings", form, origin); status != 200 || !strings.Contains(html, "synthetic TLS workspace") {
+			if status, _ := post("/settings", form, origin); status != 410 {
 				t.Fatalf("HTTPS authorized mutation: %d", status)
 			}
 			if status, _ := post("/logout", url.Values{"csrf": {csrf}}, origin); status != 200 {

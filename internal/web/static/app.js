@@ -27,20 +27,6 @@ document.addEventListener('submit', (event) => {
 });
 window.addEventListener('pageshow', resetPendingForms);
 
-document.addEventListener('click', async (event) => {
-  const button = event.target.closest('button[data-copy]');
-  if (!button) return;
-  const input = document.getElementById(button.dataset.copy);
-  const status = document.querySelector('[data-copy-status]');
-  try {
-    await navigator.clipboard.writeText(input.value);
-    status.textContent = 'Command copied. No connection was executed.';
-  } catch (_) {
-    input.focus(); input.select();
-    status.textContent = 'Select and copy the command manually.';
-  }
-});
-
 const inventoryFile = document.querySelector('[data-inventory-file]');
 if (inventoryFile) inventoryFile.addEventListener('change', async () => {
  const status = document.querySelector('[data-inventory-status]');

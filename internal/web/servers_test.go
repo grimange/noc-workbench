@@ -92,7 +92,7 @@ func TestIntegrationDashboardAndServer(t *testing.T) {
 	if request(h, "GET", "/servers/invalid", nil, cookie).Code != 404 {
 		t.Fatal("invalid identity")
 	}
-	if w = request(h, "GET", "/settings", nil, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "Workspace settings") {
+	if w = request(h, "GET", "/settings", nil, cookie); w.Code != 303 || w.Header().Get("Location") != "/" {
 		t.Fatal("settings unavailable")
 	}
 }

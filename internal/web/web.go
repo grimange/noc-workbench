@@ -364,7 +364,7 @@ func requestBudget(path string) time.Duration {
 	if strings.HasSuffix(path, "/vicidial/api") {
 		return 22 * time.Second
 	}
-	if strings.HasSuffix(path, "/collection") || strings.HasSuffix(path, "/connection") || strings.HasSuffix(path, "/ssh") || strings.HasSuffix(path, "/linux") || strings.HasSuffix(path, "/discovery") {
+	if strings.HasSuffix(path, "/collection") || strings.HasSuffix(path, "/connection") || strings.HasSuffix(path, "/ssh") || strings.HasSuffix(path, "/linux") || strings.HasSuffix(path, "/discovery") || strings.HasSuffix(path, "/asterisk") {
 		return 12 * time.Second
 	}
 	return 3 * time.Second

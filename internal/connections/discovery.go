@@ -45,7 +45,8 @@ func (s *Service) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 		}
 	}
 	if e := s.endSSH(ctx, r.ID, token); e != nil {
-		return result, &sshcli.Failure{Category: sshcli.Internal}
+		result.Category = sshcli.GuardUnavailable
+		return result, e
 	}
 	return result, err
 }

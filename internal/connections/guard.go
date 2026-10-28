@@ -30,9 +30,14 @@ func (s *Service) beginSSH(ctx context.Context, p workspace.Principal, t sshcli.
 }
 func (s *Service) endSSH(ctx context.Context, id, token string) error {
 	if g, ok := s.Repository.(DurableGuard); ok {
-		save, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		// Cleanup acknowledges a durable database write, independently of the
+		// remote execution deadline. Match collection persistence's bounded budget;
+		// a missing acknowledgement still fails closed and retains recovery guards.
+		save, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
-		return g.EndSSH(save, id, token)
+		if err := g.EndSSH(save, id, token); err != nil {
+			return &sshcli.Failure{Category: sshcli.GuardUnavailable}
+		}
 	}
 	return nil
 }

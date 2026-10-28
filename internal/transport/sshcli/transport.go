@@ -41,6 +41,9 @@ const (
 	Cancelled            Category = "cancelled"
 	Unsupported          Category = "unsupported_configuration"
 	Internal             Category = "internal_transport_error"
+	// GuardUnavailable is local durable execution bookkeeping failure, not
+	// evidence of remote network, authentication or application failure.
+	GuardUnavailable Category = "ssh_guard_unavailable"
 )
 
 type Failure struct{ Category Category }

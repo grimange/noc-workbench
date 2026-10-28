@@ -24,6 +24,17 @@ import (
 	"noc-workbench/internal/workspace"
 )
 
+func TestAsteriskVerificationRequestBudget(t *testing.T) {
+	// Identity and registration snapshots share the explicit collection budget.
+	// Passive server reads retain the short deadline and execute no SSH.
+	if got := requestBudget("/servers/synthetic/asterisk"); got != 12*time.Second {
+		t.Fatalf("Asterisk verification transport/persistence budget: %v", got)
+	}
+	if got := requestBudget("/servers/synthetic"); got != 3*time.Second {
+		t.Fatalf("passive read budget changed: %v", got)
+	}
+}
+
 func TestRegistrationViewFreshnessAndAuthority(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	ev := collection.Evidence{ID: "synthetic", RunID: "new", Observation: collection.Observation{Key: ast.RegistrationKey, Resource: "pjsip_contacts", ProfileID: "p", ProfileVersion: 1, ObservedAt: now, Value: collection.Text(`{"version":"20.20.1","status":"supported","count":0,"pages":0}`)}}

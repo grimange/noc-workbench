@@ -94,7 +94,7 @@ func (s *Store) integrationCapabilities(ctx context.Context, p workspace.Princip
 		if e != nil || !yes {
 			return workspace.ErrDenied
 		}
-		e = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM collector_result c JOIN collection_run r ON r.id=c.run_id WHERE r.asset_id=$1 AND r.endpoint_id=$2 AND r.profile_id=$3 AND r.profile_revision=$4 AND c.collector_id=$5 AND c.outcome='success')`, t.AssetID, t.EndpointID, t.ProfileID, t.ProfileVersion, id).Scan(&yes)
+		e = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM collector_result c JOIN collection_run r ON r.id=c.run_id WHERE r.asset_id=$1 AND r.endpoint_id=$2 AND r.profile_id=$3 AND r.profile_revision=$4 AND c.collector_id=$5 AND (c.outcome='success' OR ($5='asterisk.registrations' AND c.outcome='partial' AND EXISTS (SELECT 1 FROM observation o WHERE o.run_id=r.id AND o.collector_id=c.collector_id AND o.key='asterisk.registration.snapshot' AND o.resource NOT LIKE '%/%' AND o.quality='valid' AND CASE WHEN o.key='asterisk.registration.snapshot' THEN o.text_value::jsonb->>'status' END='supported'))))`, t.AssetID, t.EndpointID, t.ProfileID, t.ProfileVersion, id).Scan(&yes)
 		if e != nil || !yes {
 			return workspace.ErrDenied
 		}

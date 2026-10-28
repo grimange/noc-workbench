@@ -563,7 +563,7 @@ the existing versioned policy evaluator (default TTL 180 seconds). Failed attemp
 preserve prior observations and original timestamps. Disabled, paused, blocked,
 untrusted or stale evidence has Unknown current runtime state; its last observed
 state remains available. Dashboard and Server Details present current runtime monitoring before historical installation discovery;
-NW-37 hybrid Asterisk operational monitoring remains deferred.
+NW-37 Stage A adds optional registration snapshots; authentication events, AMI, conferences and RTP diagnostics remain deferred.
 
 
 ### Monitoring console (NW-36 Slice C)
@@ -598,3 +598,40 @@ History and VICIdial have separate direct sections. Without JavaScript, all
 sections remain readable. Existing history views provide retained time series;
 embedded overview sparklines are deferred to Monitoring Console E2. No new
 collectors, permissions, schedules, database tables or remote access are added.
+
+### SIP/PJSIP registration snapshots (NW-37 Stage A)
+
+Server Details → Services → **Asterisk monitoring** presents separately observed
+SIP peers, SIP outbound registry, PJSIP endpoints, contacts and outbound
+registrations. **Authorize registration monitoring** explicitly enables the
+existing Asterisk CLI authority for the verified SSH revision, verifies version
+and snapshot capability, and extends the existing baseline profile at a
+60-second target interval. It does not clear maintenance, global pause or
+emergency-stop controls. This is the existing shared adapter grant, which also
+permits the fixed `core show channels count` and `module show like pjsip`
+collectors; the authorization form discloses that scope. Only registration
+snapshots are added to the schedule. Passive pages and SSE never execute
+collection.
+
+The fixed snapshot commands are `sip show peers`, `sip show registry`,
+`pjsip show endpoints`, `pjsip show contacts`, and `pjsip show registrations`.
+Parsing supports Asterisk 18/20 output conventions with deterministic fixtures;
+actual deployment compatibility depends on successful authorized capability
+inspection. No sudo, remote configuration changes or AMI are used.
+
+Snapshots retain sanitized endpoint/AoR identities, host/contact locators,
+reported states, supported reachability/RTT, original timestamps and versioned
+provenance in the existing observation/history tables. URI userinfo, parameters,
+authentication objects and caller-ID fields are omitted. The bundle is bounded
+at 64 KiB and five seconds, with at most 256 rows per command. Oversized or
+malformed families fail explicitly and retain older evidence; successful empty
+snapshots replace prior object lists. PJSIP CLI addresses can be truncated.
+
+An endpoint is not a registered account. PJSIP contact presence does not prove
+whether the contact is static or dynamically registered; registration remains
+Unknown. Reachability and outbound registration validity remain separate.
+Unsupported commands have no fabricated zero counts. Disabled, stale,
+superseded or failed snapshots are labelled historical, and snapshot changes
+show observation-time brackets rather than exact event times. Detailed evidence
+is expandable. The SSH account must already have permission to use Asterisk's
+control socket; the application does not change remote permissions.

@@ -127,14 +127,26 @@ try:
     assert len(json.loads(after_import)["records"]) > len(before_import["records"])
     assert request("/inventory/interchange", payload)[0] == 200
     assert request("/inventory/interchange?download=sanitized")[1] == after_import
-    subprocess.run(compose + ["stop", "--timeout", "60", "db"], check=True, stdout=subprocess.DEVNULL)
+    # Schema-heavy integration runs can leave a large checkpoint on slower local
+    # disks. Keep a bounded graceful shutdown instead of forcing crash recovery.
+    subprocess.run(compose + ["stop", "--timeout", "180", "db"], check=True, stdout=subprocess.DEVNULL, timeout=200)
     # Loss of the dedicated single-process ownership session now terminates
     # execution fail-closed; systemd restarts after PostgreSQL restoration.
     assert process.wait(timeout=7) != 0, "ownership loss must fail closed"
     stop()
     failed = subprocess.run([env["NOC_SMOKE_BINARY"]], env=env, stdout=log, stderr=log, timeout=6)
     assert failed.returncode != 0, "unavailable database accepted at startup"
-    subprocess.run(compose + ["up", "-d", "--wait"], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(compose + ["up", "-d"], check=True, stdout=subprocess.DEVNULL, timeout=30)
+    container = subprocess.check_output(compose + ["ps", "-q", "db"], text=True, timeout=10).strip()
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        state = subprocess.check_output(["docker", "inspect", "--format", "{{.State.Status}} {{.State.Health.Status}}", container], text=True, timeout=10).strip()
+        if state == "running healthy":
+            break
+        assert state in ("running starting", "running unhealthy"), "test database exited during restart"
+        time.sleep(1)
+    else:
+        raise AssertionError("test database restart readiness exceeded 180 seconds")
     start()
     status, html = request("/")
     assert status == 200 and "Dashboard" in html, "state/session lost after restart"
@@ -156,7 +168,7 @@ try:
         backup.seek(0)
         subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "noc_workbench", "-d", "nw_restore_smoke", "--exit-on-error"], stdin=backup, check=True)
     restored = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT (SELECT count(*) FROM schema_migration),(SELECT count(*) FROM customer),(SELECT count(*) FROM environment),(SELECT note FROM operator_setting WHERE id=1),(SELECT count(*) FROM workspace_pin),(SELECT count(*) FROM operator_note),(SELECT count(*) FROM external_link),(SELECT count(*) FROM workspace_principal)"], text=True).strip()
-    assert restored == "16|3|3|" + original_label + "|0|1|1|1", "database backup restore mismatch"
+    assert restored == "17|3|3|" + original_label + "|0|1|1|1", "database backup restore mismatch"
     restored_count = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT count(*) FROM service_instance_host"], text=True).strip()
     assert int(restored_count) == 8, "imported host bindings lost in restore"
     subprocess.run(dbtools + ["dropdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)

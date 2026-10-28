@@ -13,6 +13,7 @@
 <details><summary>Advanced monitoring controls</summary><p>Resume clears only this server's profile and maintenance pauses. Customer, cluster and global pauses, emergency stop and authorization restrictions remain in force.</p>{{if .Server.Runtime.AuthorizationDiagnostic}}<p>{{.Server.Runtime.AuthorizationDiagnostic}}</p>{{end}}<a href="/scheduler">Manage broader pauses and emergency stop</a></details></div>
 </section>
 {{template "server-resources" .}}
+{{template "asterisk-registrations" .}}
 <section class="panel detail-section" data-console-tab="processes"><details><summary>Application process observations</summary><h2>Application process observations</h2><p>Supported daemon and VICIdial process signals are distinct from the systemd service list above.</p>
 {{if .Server.Runtime.ProcessTotal}}<p>VICIdial application processes: {{if .Server.Runtime.Enabled}}{{.Server.Runtime.ProcessCount}} currently observed running / {{end}}{{.Server.Runtime.ProcessTotal}} retained process identities. Overall application health unverified.</p>{{end}}
 <div class="table-scroll"><table><thead><tr><th scope="col">Service</th><th scope="col">Current state</th><th scope="col">Latest collection</th><th scope="col">Last successful evidence</th></tr></thead><tbody>

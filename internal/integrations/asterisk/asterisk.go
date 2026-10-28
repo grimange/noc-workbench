@@ -1,4 +1,4 @@
-// Package asterisk implements optional, bounded Asterisk 20 CLI observations.
+// Package asterisk implements optional, bounded Asterisk 18/20 CLI observations.
 // It owns parsing only; enrollment, SSH execution and evidence storage are shared.
 package asterisk
 
@@ -14,6 +14,7 @@ import (
 
 func Specs() []collection.Spec {
 	return []collection.Spec{
+		{ID: RegistrationCollector, Version: "1", CommandID: "asterisk.registrations.v1", Parse: Registrations, Optional: true},
 		{ID: "asterisk.identity", Version: "1", CommandID: "asterisk.identity.v1", Parse: Identity, Optional: true},
 		{ID: "asterisk.channels", Version: "1", CommandID: "asterisk.channels.v1", Parse: Channels, Optional: true},
 		{ID: "asterisk.modules", Version: "1", CommandID: "asterisk.modules.v1", Parse: Modules, Optional: true},
@@ -31,7 +32,7 @@ func fact(key string, v collection.Value) collection.Observation {
 	return collection.Observation{Key: key, Value: v, Unit: unit}
 }
 
-var version = regexp.MustCompile(`^Asterisk (20\.[0-9]+\.[0-9]+(?:[-+~][A-Za-z0-9.+~_-]{1,64})?)(?:\s|$)`)
+var version = regexp.MustCompile(`^Asterisk ((?:18|20)\.[0-9]+\.[0-9]+(?:[-+~][A-Za-z0-9.+~_-]{1,64})?)(?:\s|$)`)
 var otherVersion = regexp.MustCompile(`^Asterisk [0-9]+\.`)
 
 // frame validates bounded UTF-8 and classifies only unambiguous CLI diagnostics.

@@ -7,6 +7,7 @@ import (
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/collectors/services"
 	"noc-workbench/internal/health"
+	ast "noc-workbench/internal/integrations/asterisk"
 	"noc-workbench/internal/integrations/vicidialdiscovery"
 	"noc-workbench/internal/workspace"
 	"strconv"
@@ -32,6 +33,7 @@ type serverData struct {
 	CanDiscover       bool
 	Resources         resourceData
 	Runtime           runtimeData
+	Asterisk          asteriskRegistrationData
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
@@ -135,6 +137,11 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 			s.inventoryFailure(w, d, e)
 			return
 		}
+		d.Server.Asterisk, e = s.serverAsteriskData(r, v, in, d.Server.Result, d.Server.Runtime)
+		if e != nil {
+			s.inventoryFailure(w, d, e)
+			return
+		}
 		d.Server.Resources = resources(in, d.Server.Result, d.Server.Runtime)
 		rows, err := s.consoleServers(r, scope, []workspace.Server{v.Server})
 		if err != nil {
@@ -147,12 +154,15 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered := d.Server.Result.Readings[:0]
 		for _, reading := range d.Server.Result.Readings {
-			if reading.Evidence.Key != vicidialdiscovery.Key && reading.Evidence.Key != services.Key {
+			if reading.Evidence.Key != vicidialdiscovery.Key && reading.Evidence.Key != services.Key && reading.Evidence.Key != ast.RegistrationKey {
 				filtered = append(filtered, reading)
 			}
 		}
 		d.Server.Result.Readings = filtered
 		d.Server.EvidenceAvailable = true
+	}
+	if r.URL.Query().Get("asterisk") == "saved" {
+		d.Notice = "Asterisk registration snapshots authorized and scheduled. Existing maintenance controls remain in force."
 	}
 	if r.URL.Query().Get("maintenance") == "saved" {
 		d.Notice = "Maintenance action saved. Current monitoring blockers are shown below."

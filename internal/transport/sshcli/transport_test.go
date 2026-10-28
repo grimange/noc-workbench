@@ -330,3 +330,27 @@ func TestExecutionCheckAfterCapacity(t *testing.T) {
 		t.Fatal("post-capacity check missing")
 	}
 }
+
+func TestRegistrationStaticAllowlist(t *testing.T) {
+	p, e := fixture(t)
+	e.executable = fake(t, `for arg do printf '%s\n' "$arg"; done`)
+	r, err := e.Execute(context.Background(), actor, p.Target, "asterisk.registrations.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(r.Stdout)
+	for _, command := range []string{"core show version", "sip show peers", "sip show registry", "pjsip show endpoints", "pjsip show contacts", "pjsip show registrations"} {
+		if strings.Count(text, "asterisk -rx '"+command+"'") != 1 {
+			t.Fatal("fixed command missing or duplicated", command)
+		}
+	}
+	for _, forbidden := range []string{"sudo ", "asterisk -rx \"", "restart", " reload", " -L", " -R"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatal("unexpected authority", forbidden)
+		}
+	}
+	for _, id := range []string{"asterisk.registrations.v1; core stop now", "sip show peers", "asterisk.registrations.v1 $(id)"} {
+		_, err = e.Execute(context.Background(), actor, p.Target, id)
+		category(t, err, Unsupported)
+	}
+}

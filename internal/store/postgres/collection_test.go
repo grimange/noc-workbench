@@ -393,7 +393,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 16 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 17 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {
@@ -479,3 +479,5 @@ func TestIntegrationLongFilesystemMount(t *testing.T) {
 func TestIntegrationNW036RuntimeUpgrade(t *testing.T) { testUpgrade(t, "015", 14) }
 
 func TestIntegrationNW036BaselineUpgrade(t *testing.T) { testUpgrade(t, "016", 15) }
+
+func TestIntegrationNW037RegistrationUpgrade(t *testing.T) { testUpgrade(t, "017", 16) }

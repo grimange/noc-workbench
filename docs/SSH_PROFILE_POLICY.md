@@ -30,3 +30,12 @@ permitted. Explicit adapter opt-in supplements enrollment and is checked again
 at the post-capacity execution boundary. A remote CLI account needs independently
 restricted privileges; application allowlisting does not limit that account's
 capabilities outside NOC Workbench.
+
+NW-37 Stage A adds the optional fixed `asterisk.registrations.v1` bundle:
+`core show version`, `sip show peers`, `sip show registry`,
+`pjsip show endpoints`, `pjsip show contacts`, `pjsip show registrations`.
+It reuses explicit per-enrollment Asterisk authority, approved host-key trust,
+noninteractive OpenSSH restrictions and bounded output (64 KiB / five seconds).
+The Server Details authorization POST verifies the enrollment and schedule
+revisions, preserves all pauses, and schedules only after capability evidence.
+Raw CLI dumps, auth object names, caller IDs and URI credentials are not retained.

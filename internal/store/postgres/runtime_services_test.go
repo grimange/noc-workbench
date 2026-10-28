@@ -263,7 +263,12 @@ func TestIntegrationTenCollectorAttempt(t *testing.T) {
 		}
 	}
 	registry := linux.Registry().Extend(asterisk.Specs()...).Extend(services.Specs()...)
-	ids := registry.IDs()
+	ids := []string{}
+	for _, id := range registry.IDs() {
+		if id != asterisk.RegistrationCollector {
+			ids = append(ids, id)
+		}
+	}
 	if len(ids) != 10 {
 		t.Fatal(ids)
 	}

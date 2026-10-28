@@ -91,3 +91,31 @@ func TestCronNamesAndTimerProperties(t *testing.T) {
 		}
 	}
 }
+
+func TestTimerHostTimezoneLabels(t *testing.T) {
+	for _, zone := range []string{"UTC", "EDT", "EST"} {
+		t.Run(zone, func(t *testing.T) {
+			properties := " TimersCalendar={ OnCalendar=*-*-* 00:00:00 ; next_elapse=Thu 2026-10-29 00:00:00 " + zone + " } ActiveState=active"
+			input := strings.Replace(fixture, "timers_status|unavailable", "job|systemd timer|example.timer|"+properties+"\ntimers_status|observed", 1)
+			observations, diagnostics := Parse([]byte(input))
+			if len(diagnostics) != 0 || len(observations) != 54 {
+				t.Fatalf("valid host timezone rejected: %d %v", len(observations), diagnostics)
+			}
+			found := false
+			for _, observation := range observations {
+				if observation.Key == Prefix+"jobs" && strings.Contains(observation.Value.Text, properties) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("original timer timezone was not preserved")
+			}
+		})
+	}
+	if safeTimer("TimersCalendar={ OnCalendar=secret } ActiveState=active") || safeTimer("ActiveState=active Arbitrary=EST") {
+		t.Fatal("timezone support relaxed property or text validation")
+	}
+	if Specs()[0].Version != "2" || Specs()[0].CommandID != "linux.baseline.v1" {
+		t.Fatal("parser revision must advance without changing the approved command")
+	}
+}

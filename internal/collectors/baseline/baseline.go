@@ -16,7 +16,7 @@ const Collector = "linux.baseline"
 const Prefix = "linux.baseline."
 
 func Specs() []collection.Spec {
-	return []collection.Spec{{ID: Collector, Version: "1", CommandID: Collector + ".v1", Parse: Parse, Optional: true}}
+	return []collection.Spec{{ID: Collector, Version: "2", CommandID: Collector + ".v1", Parse: Parse, Optional: true}}
 }
 
 type Process struct {
@@ -255,7 +255,9 @@ func safeTimer(s string) bool {
 			return false
 		}
 	}
-	words := " active inactive failed activating deactivating maintenance refreshing elapsed never n a UTC Mon Tue Wed Thu Fri Sat Sun Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec us ms s sec min h d w month y "
+	// systemd renders next_elapse in the host timezone. These additional
+	// abbreviations are verified ViciBox output, not arbitrary timer text.
+	words := " active inactive failed activating deactivating maintenance refreshing elapsed never n a UTC EST EDT Mon Tue Wed Thu Fri Sat Sun Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec us ms s sec min h d w month y "
 	for _, w := range timerWords.FindAllString(s, -1) {
 		if !properties[w] && !strings.Contains(words, " "+w+" ") {
 			return false

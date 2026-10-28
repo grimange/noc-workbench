@@ -16,7 +16,7 @@ const Collector = "linux.baseline"
 const Prefix = "linux.baseline."
 
 func Specs() []collection.Spec {
-	return []collection.Spec{{ID: Collector, Version: "2", CommandID: Collector + ".v1", Parse: Parse, Optional: true}}
+	return []collection.Spec{{ID: Collector, Version: "1", CommandID: Collector + ".v1", Parse: Parse, Optional: true}}
 }
 
 type Process struct {

@@ -115,7 +115,7 @@ func TestTimerHostTimezoneLabels(t *testing.T) {
 	if safeTimer("TimersCalendar={ OnCalendar=secret } ActiveState=active") || safeTimer("ActiveState=active Arbitrary=EST") {
 		t.Fatal("timezone support relaxed property or text validation")
 	}
-	if Specs()[0].Version != "2" || Specs()[0].CommandID != "linux.baseline.v1" {
-		t.Fatal("parser revision must advance without changing the approved command")
+	if Specs()[0].Version != "1" || Specs()[0].CommandID != "linux.baseline.v1" {
+		t.Fatal("compatible timer labels must preserve the existing v1 evidence and command contract")
 	}
 }

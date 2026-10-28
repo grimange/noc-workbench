@@ -16,6 +16,7 @@ import (
 
 type consoleServer struct {
 	workspace.Server
+	Resources resourceData
 	Runtime   runtimeData
 	Discovery vicidialdiscovery.Result
 }
@@ -90,6 +91,7 @@ func (s *Server) consoleServers(r *http.Request, scope workspace.Scope, servers 
 			return nil, e
 		}
 		out[i].Runtime = runtimeReadings(d, in, evaluated)
+		out[i].Resources = resources(in, evaluated, out[i].Runtime)
 		for _, reading := range evaluated.Readings {
 			if reading.Evidence.Key == vicidialdiscovery.Key {
 				ev := reading.Evidence

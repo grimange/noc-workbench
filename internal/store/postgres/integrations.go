@@ -17,7 +17,7 @@ func (s *Store) IntegrationAllowed(ctx context.Context, p workspace.Principal, t
 	return integrationAllowed(ctx, s.pool, p, t, name)
 }
 func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, name string) error {
-	if p.ID != workspace.OperatorID || (name != "asterisk" && name != "vicidial_discovery" && name != "runtime_services") {
+	if p.ID != workspace.OperatorID || (name != "asterisk" && name != "vicidial_discovery" && name != "runtime_services" && name != "baseline") {
 		return workspace.ErrDenied
 	}
 	var yes bool
@@ -28,7 +28,7 @@ func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Pri
 	return nil
 }
 func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, name string, enabled bool) error {
-	if collectionAccess(p, h) != nil || (name != "asterisk" && name != "vicidial_discovery" && name != "runtime_services") || h.AssetID != t.AssetID {
+	if collectionAccess(p, h) != nil || (name != "asterisk" && name != "vicidial_discovery" && name != "runtime_services" && name != "baseline") || h.AssetID != t.AssetID {
 		return workspace.ErrDenied
 	}
 	r, e := s.Enrollment(ctx, t.EndpointID, t.ProfileID)
@@ -60,6 +60,11 @@ func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Prin
 	for _, id := range ids {
 		if strings.HasPrefix(id, "asterisk.") {
 			if err := integrationAllowed(ctx, q, p, t, "asterisk"); err != nil {
+				return err
+			}
+		}
+		if id == "linux.baseline" {
+			if err := integrationAllowed(ctx, q, p, t, "baseline"); err != nil {
 				return err
 			}
 		}

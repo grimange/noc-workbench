@@ -136,6 +136,19 @@ func (s *Store) SaveEnrollment(ctx context.Context, p workspace.Principal, r con
 		}
 		return r, e
 	}
+	if r.State == "connection_verified" && r.Details.BaselineAuthorized && (action == "verify" || action == "baseline") {
+		// A one-time baseline grant on an already verified enrollment does not
+		// revoke separately approved adapters. Rebind only grants from the exact
+		// preceding revision; older or disabled grants remain invalid.
+		if action == "baseline" {
+			if _, e = tx.Exec(ctx, `UPDATE collection_integration SET profile_revision=$2,revision=revision+1,updated_at=clock_timestamp() WHERE profile_id=$1 AND profile_revision=$3 AND enabled`, r.ID, r.Revision, revision); e != nil {
+				return r, e
+			}
+		}
+		if e = authorizeBaseline(ctx, tx, p, r); e != nil {
+			return r, e
+		}
+	}
 	return commitEnrollment(ctx, tx, p, r, action)
 }
 func commitEnrollment(ctx context.Context, tx pgx.Tx, p workspace.Principal, r connections.Record, action string) (connections.Record, error) {

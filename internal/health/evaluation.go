@@ -59,7 +59,7 @@ func (p Policy) Validate() error {
 }
 func SupportedSelector(s string) bool {
 	switch s {
-	case "linux.services", "linux.service.runtime", "vicidial.discovery", "vicidial.discovery.snapshot", "vicidial.api.version", "vicidial.api.campaigns", "vicidial.api.agents", "vicidial.api.build", "vicidial.campaigns.configured_count", "vicidial.campaigns.active_count", "vicidial.agents.visible_logged_in_count", "vicidial.agents.visible_in_call_count", "vicidial.agents.visible_paused_count", "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
+	case "linux.baseline", "linux.baseline.cpu_percent", "linux.baseline.pressure_some_percent", "linux.baseline.swap_total_bytes", "linux.baseline.swap_free_bytes", "linux.baseline.processes", "linux.baseline.units", "linux.baseline.jobs", "linux.baseline.status", "linux.services", "linux.service.runtime", "vicidial.discovery", "vicidial.discovery.snapshot", "vicidial.api.version", "vicidial.api.campaigns", "vicidial.api.agents", "vicidial.api.build", "vicidial.campaigns.configured_count", "vicidial.campaigns.active_count", "vicidial.agents.visible_logged_in_count", "vicidial.agents.visible_in_call_count", "vicidial.agents.visible_paused_count", "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
 		return true
 	}
 	return false
@@ -228,6 +228,19 @@ func Evaluate(in Input) (Evaluation, error) {
 }
 func validValue(e collection.Evidence) bool {
 	k, v, u := e.Key, e.Value, e.Unit
+	if strings.HasPrefix(k, "linux.baseline.") {
+		if e.CollectorID != "linux.baseline" || e.SourceID != "" {
+			return false
+		}
+		switch k {
+		case "linux.baseline.cpu_percent", "linux.baseline.pressure_some_percent":
+			return e.Resource == "" && v.Kind == "number" && u == "percent" && v.Number >= 0 && v.Number <= 100
+		case "linux.baseline.swap_total_bytes", "linux.baseline.swap_free_bytes":
+			return e.Resource == "" && v.Kind == "integer" && u == "bytes"
+		default:
+			return v.Kind == "text" && u == "text" && len(v.Text) > 0 && len(v.Text) <= 4096
+		}
+	}
 	if k == "linux.service.runtime" {
 		return e.CollectorID == "linux.services" && e.SourceID == "" && e.Resource != "" && v.Kind == "text" && u == "text" && len(v.Text) > 0 && len(v.Text) <= 512
 	}

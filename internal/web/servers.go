@@ -23,6 +23,7 @@ type serverData struct {
 	Result            health.Evaluation
 	Discovery         vicidialdiscovery.Result
 	CanDiscover       bool
+	Resources         resourceData
 	Runtime           runtimeData
 }
 
@@ -118,6 +119,7 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 			s.inventoryFailure(w, d, e)
 			return
 		}
+		d.Server.Resources = resources(in, d.Server.Result, d.Server.Runtime)
 		filtered := d.Server.Result.Readings[:0]
 		for _, reading := range d.Server.Result.Readings {
 			if reading.Evidence.Key != vicidialdiscovery.Key && reading.Evidence.Key != services.Key {

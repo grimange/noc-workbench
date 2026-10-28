@@ -508,14 +508,38 @@ presentation are described below.
 
 ## Runtime service monitoring (NW-36 Slice B)
 
-Server Details offers **Enable 60-second monitoring** after explicit authorization
-of the current verified SSH enrollment. This adds `linux.services` to the existing
-one-per-server schedule, retaining other collector choices. The profile uses the
-accepted scheduler, shared five-asset admission limit, pause/resume, emergency
-stop and bounded retry behavior. Static installation discovery stays on demand.
-The interval is a target: scheduling jitter, capacity, connectivity and execution
-can delay observations. The page shows actual timestamps, latest attempt,
-scheduler state, delay and skipped work. Opening pages never contacts servers.
+New SSH enrollments explicitly authorize the baseline read-only monitoring profile
+as part of enrollment. Once host identity and connectivity are verified, the same
+transaction creates the persistent 60-second NW-011 schedule. Collection continues
+without a browser and after application restart. Existing enrollments retain their
+original permissions; a one-time baseline grant is available in SSH enrollment.
+Maintenance pause/resume, global emergency stop and the shared five-asset admission
+limit remain authoritative. Separately approved optional collectors are preserved;
+a combined profile exceeding the existing ten-collector limit is rejected atomically.
+Static installation discovery stays on demand. The interval is a target: scheduling
+jitter, capacity, connectivity and execution can delay observations. Passive page
+reads never contact monitored servers.
+
+The baseline capability samples `/proc/stat` counters over one second for CPU
+utilization, separately from load averages. It supplements existing memory and
+filesystem collectors with swap, PSI memory pressure where readable, and top CPU/RSS
+process identities (PID and executable name, never command arguments). Process CPU
+is a share of whole-host capacity, not a per-core percentage. Sampling is bounded to
+4,096 readable processes and retains at most ten CPU and ten memory leaders.
+
+Services lists actual systemd service units with separate load/active/substate and
+installed-file state; active/exited does not establish a running daemon. Scheduled
+jobs lists bounded readable system cron definitions, the SSH user's crontab and
+supported timer properties. Arbitrary commands, arguments and environment values
+are withheld. Schedule configuration does not establish execution success, and
+other users' unreadable schedules remain unverified. At most 512 service units and
+192 schedule definitions are retained. Missing capabilities remain unavailable.
+
+Migration 016 adds the revision-bound baseline capability and canonical observation
+contracts. It grants no permissions or schedules to legacy enrollments. Resource
+measurements, unit/process/job snapshots and numeric history use existing PostgreSQL
+observations, policies and SSE. Older values omitted by a newer baseline sample are
+historical, even before their original freshness TTL expires.
 
 The fixed read-only collector inspects bounded systemd unit metadata, approved
 binary availability and process identities for Asterisk, MariaDB/MySQL and Apache.
@@ -549,7 +573,7 @@ NW-37 hybrid Asterisk operational monitoring remains deferred.
 Dashboard queries are paginated at 25 servers and retrieve monitoring evidence in
 one bounded bulk snapshot. Server Details prioritizes the latest runtime attempt,
 last successful runtime collection, original observation timestamps and discovered
-services. A failed attempt is displayed separately from retained valid evidence.
+resources, processes, real systemd units and readable schedule definitions. A failed attempt is displayed separately from retained valid evidence.
 An inactive unit cannot override an observed running process. Stale or disabled
 readings retain historical values inside evidence disclosures, with no current
 Running assertion. These signals do not establish comprehensive application health.

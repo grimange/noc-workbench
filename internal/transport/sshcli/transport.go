@@ -93,6 +93,7 @@ type command struct {
 // Registry entries are source-controlled static shell text. No caller can add
 // commands or interpolate remote values. Optional sources have explicit framing.
 var registry = map[string]command{
+	"linux.baseline.v1":     {baselineCommand, 18 * time.Second, 64 * 1024},
 	"linux.services.v1":     {runtimeServicesCommand, 12 * time.Second, 4096},
 	"vicidial.discovery.v1": {vicidialDiscoveryCommand, 5 * time.Second, 8192},
 	"lab.probe.v1":          {"printf 'NOC_WORKBENCH_SSH_LAB_OK\\n'", 5 * time.Second, 64 * 1024},

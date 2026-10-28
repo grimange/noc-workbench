@@ -39,6 +39,7 @@ func (OperatorPolicy) Scope(p workspace.Principal, permission workspace.Permissi
 
 // Details contains public enrollment metadata only. Credential files stay external.
 type Details struct {
+	BaselineAuthorized                                                   bool
 	Host, Address, Username, CredentialRef, CredentialDigest             string
 	Port                                                                 uint16
 	EndpointUpdatedAt                                                    time.Time
@@ -315,16 +316,22 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 	}
 	token := ""
 	switch action {
+	case "baseline":
+		if r.State != "connection_verified" || evidence != "baseline" {
+			return r, ErrState
+		}
+		r.Details.BaselineAuthorized = true
 	case "submit":
 		if r.State != "draft" {
 			return r, ErrState
 		}
 		r.State = "pending_authorization"
 	case "authorize":
-		if r.State != "pending_authorization" || evidence != "authorized" {
+		if r.State != "pending_authorization" || (evidence != "authorized" && evidence != "baseline") {
 			return r, ErrState
 		}
 		r.State = "pending_host_key_verification"
+		r.Details.BaselineAuthorized = evidence == "baseline"
 		r.Details.AuthorizedBy = p.ID
 		r.Details.AuthorizedAt = &now
 	case "inspect":
@@ -419,6 +426,7 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 	return saved, err
 }
 func clearTrust(r *Record) {
+	r.Details.BaselineAuthorized = false
 	r.Details.ApprovedKey = ""
 	r.Details.ApprovedFingerprint = ""
 	r.Details.ApprovedBy = ""

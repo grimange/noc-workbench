@@ -11,9 +11,12 @@ import (
 )
 
 // Browser verification is opt-in and uses only the existing synthetic SSH/DB fixture.
-func consoleBrowser(t *testing.T, h http.Handler, cookie *http.Cookie, entry string) {
+func consoleBrowser(t *testing.T, h http.Handler, cookie *http.Cookie, entry string, resource ...bool) {
 	t.Helper()
 	script := os.Getenv("NOC_CONSOLE_BROWSER")
+	if len(resource) > 0 && resource[0] {
+		script = os.Getenv("NOC_RESOURCE_BROWSER")
+	}
 	if script == "" {
 		return
 	}

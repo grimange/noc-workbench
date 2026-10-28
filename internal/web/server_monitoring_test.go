@@ -107,7 +107,7 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 	cookie := authenticate(t, h)
 	path := "/servers/" + asset.ID
 	page := request(h, "GET", path, nil, cookie)
-	if page.Code != 200 || exec.calls != 0 || !strings.Contains(page.Body.String(), "Enable 60-second monitoring") {
+	if page.Code != 200 || exec.calls != 0 || !strings.Contains(page.Body.String(), "Enrollment and baseline monitoring authority") {
 		t.Fatal("passive read or form", page.Code)
 	}
 	token := regexp.MustCompile(`name="csrf" value="([a-f0-9]{64})"`).FindStringSubmatch(page.Body.String())
@@ -149,7 +149,7 @@ func TestIntegrationServerMonitoringHTTP(t *testing.T) {
 			t.Fatal("passive SSH")
 		}
 	}
-	for _, text := range []string{"Monitored services", "Monitoring enabled", "Process running", "mariadb.service", "apache2.service", "linux.services v1", "Historical / last observed:", "Freshness: fresh", "observation "} {
+	for _, text := range []string{"Application process observations", "Monitoring enabled", "Process running", "mariadb.service", "apache2.service", "linux.services v1", "Historical / last observed:", "Freshness: fresh", "observation "} {
 		if !strings.Contains(page.Body.String(), text) {
 			t.Fatal("missing evidence", text, page.Body.String())
 		}

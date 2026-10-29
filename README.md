@@ -775,7 +775,7 @@ cleanup during ingestion. Passive GET/SSE reads do not connect or collect.
 
 The verified lab emitted `FullyBooted` on login. ContactStatus, PeerStatus and
 Registry normalization have deterministic fixtures; a fixture does not establish
-that a particular live installation emits those families. RTP/RTCP remains Stage E.
+that a particular live installation emits those families. RTP/RTCP observations are described in Stage E below.
 
 
 ### Channels, bridges and conferences (NW-37 Stage D)
@@ -829,3 +829,47 @@ channels, bridges or conferences; both conference commands were supported.
 Populated channel, bridge and conference transitions are tested with deterministic
 fixtures. An empty live lab does not verify emission of each populated event
 family. No calls or participants are generated for validation.
+
+### RTP/RTCP media observations (NW-37 Stage E)
+
+The existing Asterisk panel adds an explicit Media reporting expansion within
+Standard Server Monitoring. It requires channel monitoring and requests
+`system,call,reporting` through the existing restricted AMI session. Administrators
+must add only `reporting` to the dedicated account's read classes, preserve
+`write=none`, and append anchored include filters for `RTCPReceived` and `RTCPSent`.
+A connected session confirms transport/login, not that reporting permission,
+filters or an endpoint actually produced an RTCP event.
+
+RTCP reports retain bounded operational fields and exact channel Uniqueid,
+Asterisk process generation, session and SSRC provenance. Endpoint attribution
+reuses verified channel evidence; Linkedid alone never establishes ownership.
+Received report blocks describe the remote receiver's report about Asterisk's
+transmitted stream. Sent blocks describe Asterisk's local receive observations.
+SR sender packet counts remain separate from report-block loss. Fraction lost is
+an interval fraction divided by 256; cumulative loss uses the signed 24-bit RTCP
+representation. Missing measurements remain unknown. Jitter remains in RTP
+timestamp units when no verified clock rate is available. Received RTT converts
+seconds to milliseconds only with fresh block-zero LSR evidence; delay fields
+are not treated as independent RTT measurements. Asterisk 18's serializer may
+omit report blocks after block zero; such reports retain an incomplete flag.
+
+The optional fixed CLI bundle uses `sip show channelstats` and
+`pjsip show channelstats` through the existing gateway's exact `media` argument.
+The standard schedule grows to eleven bounded collectors. CLI identities are
+truncated by the installed commands, so their rows remain uncorrelated and
+omit peer, Call-ID, channel and bridge text. Only source-labelled packet counters,
+loss counters and source-reported percentages persist. CLI jitter and RTT are
+omitted because those summaries do not establish the stream provenance used by
+RTCP reports. A failed command or incomplete bundle cannot establish an empty
+snapshot. An exit-zero unsupported command remains Unsupported.
+
+The media table exposes up to 100 recent journal entries within the existing
+seven-day event retention. Evidence expires independently of connection health:
+current RTCP observations require a fresh reconciled active channel in the same
+runtime/session and reports younger than 60 seconds. CLI snapshots expire after
+180 seconds. Hangup, disconnect, pause, revocation or stale reconciliation leaves
+prior reports historical. Reconnection cannot reconstruct missed RTCP reports.
+Session/sequence replay is idempotent; AMI supplies no durable cross-session
+replay identity. No raw frames, caller numbers, dialed numbers, media content or
+quality scores are stored. Direct media or absent RTCP can legitimately leave a
+channel without measurements; missing data never means zero loss or healthy.

@@ -78,6 +78,7 @@ func (s *Store) AMIBindings(ctx context.Context, p workspace.Principal) ([]ami.B
 			b.Eligible = false
 		}
 		b.Activity = s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_activity") == nil
+		b.Media = b.Activity && s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_media") == nil
 		out = append(out, b)
 	}
 	if rows.Err() != nil || len(out) > 1000 {
@@ -190,6 +191,11 @@ func (s *Store) PersistAMIEvent(ctx context.Context, b ami.Binding, id string, e
 	if e = amiAllowed(ctx, tx, b); e != nil {
 		return e
 	}
+	if event.Media != nil {
+		if !b.Media || !b.Activity || integrationAllowed(ctx, tx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_media") != nil || integrationAllowed(ctx, tx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_activity") != nil {
+			return workspace.ErrDenied
+		}
+	}
 	if activity.IsEvent(event.Name) {
 		if !b.Activity || integrationAllowed(ctx, tx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_activity") != nil {
 			return workspace.ErrDenied
@@ -200,7 +206,29 @@ func (s *Store) PersistAMIEvent(ctx context.Context, b ami.Binding, id string, e
 		return workspace.ErrDenied
 	}
 	activityJSON, _ := json.Marshal(event.Activity)
-	insert, e := tx.Exec(ctx, `INSERT INTO asterisk_ami_event(session_id,customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,sequence,name,technology,endpoint,aor,address,state,rtt_ms,source_at,received_at,parser_version,coverage_gap,activity) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'1',$18,$19) ON CONFLICT(session_id,sequence) DO NOTHING`, id, b.Scope.CustomerID, b.Scope.EnvironmentID, b.Target.AssetID, b.Target.EndpointID, b.Target.ProfileID, b.Target.ProfileVersion, event.Sequence, event.Name, event.Technology, event.Endpoint, event.AOR, event.Address, event.State, event.RTT, event.SourceAt, event.ReceivedAt, gap || dropped > 0, activityJSON)
+	mediaRuntime, mediaChannel := "", ""
+	if event.Media != nil {
+		var raw []byte
+		err := tx.QueryRow(ctx, `SELECT state FROM asterisk_activity_state WHERE profile_id=$1 AND profile_revision=$2 AND state->>'session'=$3`, b.Target.ProfileID, b.Target.ProfileVersion, id).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return ErrUnavailable
+		}
+		if err == nil {
+			var state activity.State
+			if activity.Decode(raw, &state) != nil {
+				return ErrUnavailable
+			}
+			mediaRuntime = state.Runtime
+			for _, c := range state.Channels {
+				if c.ID == event.Media.Uniqueid {
+					mediaChannel = c.Name
+					break
+				}
+			}
+		}
+	}
+	mediaJSON, _ := json.Marshal(event.Media)
+	insert, e := tx.Exec(ctx, `INSERT INTO asterisk_ami_event(session_id,customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,sequence,name,technology,endpoint,aor,address,state,rtt_ms,source_at,received_at,parser_version,coverage_gap,activity,media,media_runtime,media_channel) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'1',$18,$19,$20,$21,$22) ON CONFLICT(session_id,sequence) DO NOTHING`, id, b.Scope.CustomerID, b.Scope.EnvironmentID, b.Target.AssetID, b.Target.EndpointID, b.Target.ProfileID, b.Target.ProfileVersion, event.Sequence, event.Name, event.Technology, event.Endpoint, event.AOR, event.Address, event.State, event.RTT, event.SourceAt, event.ReceivedAt, gap || dropped > 0, activityJSON, mediaJSON, mediaRuntime, mediaChannel)
 	if e != nil {
 		return ErrUnavailable
 	}

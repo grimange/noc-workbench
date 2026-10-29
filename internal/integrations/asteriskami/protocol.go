@@ -92,7 +92,7 @@ func (d *Decoder) Read() (Frame, error) {
 			return f, nil
 		}
 		count++
-		if count > 128 {
+		if count > 384 {
 			return nil, ErrProtocol
 		}
 		k, v, ok := strings.Cut(s, ":")
@@ -128,8 +128,11 @@ func Login(ctx context.Context, c io.ReadWriteCloser, username, secret string, a
 		return nil, e
 	}
 	events := "system"
-	if len(activity) == 1 && activity[0] {
+	if len(activity) >= 1 && activity[0] {
 		events = "system,call"
+	}
+	if len(activity) == 2 && activity[0] && activity[1] {
+		events = "system,call,reporting"
 	}
 	if _, e := fmt.Fprintf(c, "Action: Login\r\nActionID: nw-login\r\nUsername: %s\r\nSecret: %s\r\nEvents: %s\r\n\r\n", username, secret, events); e != nil {
 		return nil, ErrDisconnected

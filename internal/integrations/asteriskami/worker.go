@@ -19,6 +19,7 @@ type Binding struct {
 	Ref, Digest               string
 	Enabled, Eligible, Paused bool
 	Activity                  bool
+	Media                     bool
 }
 type Session struct {
 	ID, State, Reason                              string
@@ -262,7 +263,7 @@ func (s *Service) connection(ctx context.Context, b Binding, id string, c sshcli
 		handshake.Stop()
 		return err
 	}
-	d, err := Login(child, stream, c.Username, c.Secret, b.Activity)
+	d, err := Login(child, stream, c.Username, c.Secret, b.Activity, b.Media)
 	handshake.Stop()
 	if err != nil {
 		return err
@@ -277,7 +278,7 @@ func (s *Service) connection(ctx context.Context, b Binding, id string, c sshcli
 		var seq int64
 		result <- Receive(child, stream, d, func(f Frame) {
 			e, ok := Normalize(f, time.Now().UTC())
-			if !ok || (!b.Activity && activity.IsEvent(e.Name)) {
+			if !ok || (e.Media != nil && (!b.Media || !b.Activity)) || (!b.Activity && activity.IsEvent(e.Name)) {
 				return
 			}
 			seq++

@@ -187,3 +187,24 @@ current activity authority, fresh evidence and the same healthy AMI session.
 Database composite FKs reject cross-customer associations directly. Migration
 021 creates no grants, changes no schedules and preserves previous migrations,
 registration history, authentication cursors, credentials and AMI sessions.
+
+### NW-37 Stage E media observations (migration 022)
+
+`asterisk_ami_event` retains bounded normalized `media` JSON for RTCPReceived and
+RTCPSent, with an allowlist of scalar/report-block keys, at most 31 blocks and a
+16 KiB payload bound. `media_runtime` scopes correlation to the observed Asterisk
+process generation; `media_channel` preserves the sanitized channel association
+at ingestion after the current active set changes. Existing scoped session keys,
+customer/environment/asset/profile constraints and session/sequence uniqueness
+remain authoritative. History retains prior enrollment revisions with explicit
+revision provenance, using the existing seven-day journal retention and bounded
+latest-100 query. Channel Uniqueid/runtime/session joins are independent of
+Linkedid context and endpoint evidence. Missing measurements use null values.
+
+The opt-in `asterisk_media` integration requires the existing Asterisk activity
+grant. Supplemental `asterisk.media` CLI snapshots reuse observation and
+collector_result, with source manifests and at most 128 numeric rows per driver.
+Resources are fixed `sip`/`pjsip` source names and ordinal suffixes, never remote
+identifiers. The eleventh standard collector is allowed consistently by schedule,
+run and application bounds. Failed latest attempts do not inherit earlier rows
+as current. Neither migration expands existing grants or schedules automatically.

@@ -380,3 +380,29 @@ func TestActivityFixedSnapshotAllowlist(t *testing.T) {
 		t.Fatal("fixed helper argument", err)
 	}
 }
+
+func TestMediaFixedSnapshotAllowlist(t *testing.T) {
+	p, e := fixture(t)
+	e.executable = fake(t, `for arg do printf '%s\n' "$arg"; done`)
+	r, err := e.Execute(context.Background(), actor, p.Target, "asterisk.media.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(r.Stdout)
+	if !strings.Contains(text, "set -e;") || !strings.Contains(text, "-oClearAllForwardings=yes") {
+		t.Fatal("failure/forwarding boundary", text)
+	}
+	for _, c := range []string{"core show version", "sip show channelstats", "pjsip show channelstats"} {
+		if strings.Count(text, "asterisk -rx '"+c+"'") != 1 {
+			t.Fatal(c)
+		}
+	}
+	for _, id := range []string{"asterisk.media.v1; id", "asterisk.media.helper.v1 extra", "sip show channelstats"} {
+		_, err = e.Execute(context.Background(), actor, p.Target, id)
+		category(t, err, Unsupported)
+	}
+	r, err = e.Execute(context.Background(), actor, p.Target, "asterisk.media.helper.v1")
+	if err != nil || !strings.Contains(string(r.Stdout), "/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe media") {
+		t.Fatal(err)
+	}
+}

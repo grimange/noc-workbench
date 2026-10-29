@@ -29,14 +29,18 @@ type registrationFamily struct {
 	PreviousAt                      time.Time
 }
 type asteriskRegistrationData struct {
-	Available, Authorized, Scheduled bool
-	Status, Outcome, Diagnostic      string
-	AttemptAt                        time.Time
-	Families                         []registrationFamily
-	Auth                             auth.View
-	AMI                              ami.View
-	AMIChoices                       []ami.Choice
-	Activity                         activity.View
+	Available, Authorized, Scheduled      bool
+	Status, Outcome, Diagnostic           string
+	AttemptAt                             time.Time
+	Families                              []registrationFamily
+	Auth                                  auth.View
+	AMI                                   ami.View
+	AMIChoices                            []ami.Choice
+	Activity                              activity.View
+	MediaCLI                              ast.CLIStatsView
+	Media                                 []ami.MediaRecord
+	MediaAuthorized                       bool
+	MediaWithCurrent, MediaWithoutCurrent int
 }
 
 func registrationView(in health.Input, out health.Evaluation, profile scheduler.Profile, allowed, paused bool, history []collection.Evidence) asteriskRegistrationData {
@@ -223,13 +227,15 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 			d.Activity.Current = false
 			d.Activity.Reason = "Monitoring is paused, unauthorized or awaiting a connected reconciliation"
 		}
+
 		query := r.URL.Query().Get("channel")
 		if len(query) > 128 {
 			return d, workspace.ErrDenied
 		}
 		d.Activity.Query = query
 		var channels []activity.Channel
-		for _, c := range d.Activity.Channels {
+		for i := range d.Activity.Channels {
+			c := &d.Activity.Channels[i]
 			for _, family := range d.Families {
 				if family.Current && (family.Name == "sip peers" || family.Name == "pjsip endpoints") {
 					for _, row := range family.Snapshot.Rows {
@@ -239,6 +245,29 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 					}
 				}
 			}
+		}
+		if mediaRepo, ok := s.store.(interface {
+			MediaHistory(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target) ([]ami.MediaRecord, bool, error)
+		}); ok {
+			d.Media, d.MediaAuthorized, err = mediaRepo.MediaHistory(r.Context(), operatorPrincipal(), in.Scope, rt.Profile.Target)
+			if err != nil {
+				return d, err
+			}
+			correlateMedia(&d, time.Now().UTC())
+			if repo, ok := s.store.(interface {
+				MediaCLIView(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, time.Time) (ast.CLIStatsView, error)
+			}); ok {
+				d.MediaCLI, err = repo.MediaCLIView(r.Context(), operatorPrincipal(), in.Scope, rt.Profile.Target, time.Now().UTC())
+				if err != nil {
+					return d, err
+				}
+				if !mediaCLIEligible(in, rt.Profile, d.Authorized, rt.Paused) {
+					d.MediaCLI.Current = false
+				}
+			}
+		}
+
+		for _, c := range d.Activity.Channels {
 			if query == "" || strings.Contains(strings.ToLower(c.Name+" "+c.Endpoint+" "+c.ID), strings.ToLower(query)) {
 				channels = append(channels, c)
 			}
@@ -346,4 +375,42 @@ func (s *Server) serverAsterisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "Enrollment does not belong to this server", 404)
+}
+
+// Correlation uses the reconciled runtime and exact Uniqueid only. The bounded
+// history window does not establish that every channel has media telemetry.
+func correlateMedia(d *asteriskRegistrationData, now time.Time) {
+	measured := map[string]bool{}
+	for i := range d.Media {
+		m := &d.Media[i]
+		if m.Channel == "" {
+			m.Channel = "Unknown"
+		}
+		m.Endpoint = "Unknown"
+		m.Status = "Historical or channel association unknown"
+		if m.Runtime == d.Activity.Runtime && m.Runtime != "" && m.Report.Uniqueid != "" {
+			for _, c := range d.Activity.Channels {
+				if c.ID == m.Report.Uniqueid {
+					m.Channel = c.Name
+					if strings.HasPrefix(c.Association, "Matches observed endpoint definition") {
+						m.Endpoint = c.Endpoint
+					}
+					age := now.Sub(m.At)
+					if d.Activity.Current && d.MediaAuthorized && d.AMI.Current && m.Session == d.AMI.Session.ID && !m.Gap && age >= 0 && age < 60*time.Second {
+						m.Status = "Current"
+						measured[c.ID] = true
+					}
+				}
+			}
+		}
+	}
+	if d.Activity.Current {
+		d.MediaWithCurrent = len(measured)
+		d.MediaWithoutCurrent = len(d.Activity.Channels) - len(measured)
+	}
+}
+
+// CLI evidence has its own freshness; an AMI connection is not required.
+func mediaCLIEligible(in health.Input, p scheduler.Profile, allowed, paused bool) bool {
+	return allowed && in.Active && in.Trusted && !paused && !p.Paused && p.Enabled && p.Authorized && p.EvidenceEligible && slices.Contains(p.Collectors, "asterisk.media")
 }

@@ -16,6 +16,7 @@ const ParserVersion = "1"
 
 type Event struct {
 	Activity                                        activity.Event
+	Media                                           *MediaReport
 	Name, Technology, Endpoint, AOR, Address, State string
 	RTT                                             *float64
 	SourceAt                                        *time.Time
@@ -72,6 +73,12 @@ func address(s string) string {
 func Normalize(f Frame, received time.Time) (Event, bool) {
 	e := Event{Name: f.One("Event"), ReceivedAt: received.UTC()}
 	switch e.Name {
+	case "RTCPReceived", "RTCPSent":
+		m, ok := ParseMedia(f)
+		if !ok {
+			return Event{}, false
+		}
+		e.Media = &m
 	case "FullyBooted":
 		e.State = "Fully booted"
 	case "Shutdown":
@@ -122,6 +129,12 @@ func Normalize(f Frame, received time.Time) (Event, bool) {
 	return e, true
 }
 func ValidEvent(e Event) bool {
+	if (e.Name == "RTCPReceived" || e.Name == "RTCPSent") != (e.Media != nil) || e.Media != nil && !e.Media.Valid() {
+		return false
+	}
+	if e.Media != nil && ((e.Name == "RTCPReceived") != (e.Media.Perspective == "remote receiver report about Asterisk transmission")) {
+		return false
+	}
 	if !e.Activity.Valid() {
 		return false
 	}
@@ -129,7 +142,7 @@ func ValidEvent(e Event) bool {
 		return false
 	}
 	f := Frame{"event": {e.Name}}
-	if _, ok := Normalize(f, e.ReceivedAt); !ok {
+	if _, ok := Normalize(f, e.ReceivedAt); !ok && e.Media == nil {
 		return false
 	}
 	if e.Technology != "" && known(e.Technology, "SIP", "PJSIP", "IAX2") == "" {

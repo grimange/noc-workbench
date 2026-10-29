@@ -59,7 +59,7 @@ func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h col
 }
 
 func monitoringIntegration(name string) bool {
-	return name == "asterisk_activity" || name == "asterisk_auth" || name == "asterisk_auth_helper" || name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
+	return name == "asterisk_media" || name == "asterisk_activity" || name == "asterisk_auth" || name == "asterisk_auth_helper" || name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
 }
 
 // StandardMonitoringAllowed is a projection of the existing four scoped grants,
@@ -98,7 +98,7 @@ func (s *Store) SetStandardMonitoringWithActivity(ctx context.Context, p workspa
 	}
 	return s.setStandardMonitoring(ctx, p, h, t, helper, []bool{auth, authHelper}, &activity)
 }
-func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper bool, auth []bool, activity *bool) error {
+func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper bool, auth []bool, activity *bool, media ...bool) error {
 	if collectionAccess(p, h) != nil || h.AssetID != t.AssetID {
 		return workspace.ErrDenied
 	}
@@ -166,7 +166,20 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 		if *activity {
 			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'asterisk.activity'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('asterisk.activity'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.activity'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.activity'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(array_remove(collector_ids,'asterisk.activity'),'asterisk.media'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.activity'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+		}
+		if e != nil {
+			return ErrUnavailable
+		}
+	}
+	if len(media) == 1 {
+		if e = grantMonitoring(ctx, tx, p, r, "asterisk_media", media[0]); e != nil {
+			return e
+		}
+		if media[0] {
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'asterisk.media'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('asterisk.media'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
+		} else {
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.media'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.media'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
 		}
 		if e != nil {
 			return ErrUnavailable
@@ -188,6 +201,14 @@ func grantMonitoring(ctx context.Context, tx pgx.Tx, p workspace.Principal, r co
 }
 func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {
+		if id == "asterisk.media" {
+			if err := integrationAllowed(ctx, q, p, t, "asterisk_media"); err != nil {
+				return err
+			}
+			if err := integrationAllowed(ctx, q, p, t, "asterisk_activity"); err != nil {
+				return err
+			}
+		}
 		if id == "asterisk.activity" {
 			if err := integrationAllowed(ctx, q, p, t, "asterisk_activity"); err != nil {
 				return err
@@ -226,6 +247,14 @@ func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Prin
 // enrollment revision. Manual inspection establishes capabilities first.
 func (s *Store) integrationCapabilities(ctx context.Context, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {
+		if id == "asterisk.media" {
+			if err := s.IntegrationAllowed(ctx, p, t, "asterisk_media"); err != nil {
+				return err
+			}
+			if err := s.IntegrationAllowed(ctx, p, t, "asterisk_activity"); err != nil {
+				return err
+			}
+		}
 		if id == "asterisk.activity" {
 			if err := s.IntegrationAllowed(ctx, p, t, "asterisk_activity"); err != nil {
 				return err
@@ -248,4 +277,11 @@ func (s *Store) integrationCapabilities(ctx context.Context, p workspace.Princip
 		}
 	}
 	return nil
+}
+
+func (s *Store) SetStandardMonitoringWithMedia(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper, auth, authHelper, active, media bool) error {
+	if authHelper && !auth || media && !active {
+		return workspace.ErrDenied
+	}
+	return s.setStandardMonitoring(ctx, p, h, t, helper, []bool{auth, authHelper}, &active, media)
 }

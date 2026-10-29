@@ -93,7 +93,7 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 var safeDiagnostic = regexp.MustCompile(`^[a-z_]{1,80}$`)
 
 func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r collection.Run, ttl int) error {
-	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 10) || ttl < 1 || ttl > 86400 {
+	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 11) || ttl < 1 || ttl > 86400 {
 		return collection.ErrPersistence
 	}
 	r.Summarize()

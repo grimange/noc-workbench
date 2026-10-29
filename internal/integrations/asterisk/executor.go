@@ -29,13 +29,21 @@ func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 			return deny()
 		}
 		helper := strings.Contains(id, ".helper.")
-		if id == "asterisk.identity.v1" || id == "asterisk.registrations.v1" || id == "asterisk.activity.v1" {
+		if id == "asterisk.identity.v1" || id == "asterisk.registrations.v1" || id == "asterisk.activity.v1" || id == "asterisk.media.v1" {
 			helper = e.Authority.IntegrationAllowed(ctx, p, t, "asterisk_helper") == nil
 			if helper {
 				id = strings.TrimSuffix(id, ".v1") + ".helper.v1"
 			}
 		}
 		check := func(c context.Context) error {
+			if strings.HasPrefix(id, "asterisk.media.") {
+				if err := e.Authority.IntegrationAllowed(c, p, t, "asterisk_media"); err != nil {
+					return err
+				}
+				if err := e.Authority.IntegrationAllowed(c, p, t, "asterisk_activity"); err != nil {
+					return err
+				}
+			}
 			if strings.HasPrefix(id, "asterisk.activity.") {
 				if err := e.Authority.IntegrationAllowed(c, p, t, "asterisk_activity"); err != nil {
 					return err

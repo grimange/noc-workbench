@@ -129,3 +129,26 @@ func TestGatewayRevocationAtTransportBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestMediaGatewayChildFailures(t *testing.T) {
+	b, e := os.ReadFile("../../../scripts/asterisk-observe")
+	if e != nil {
+		t.Fatal(e)
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "asterisk")
+	gateway := filepath.Join(dir, "gateway")
+	if e = os.WriteFile(gateway, []byte(strings.ReplaceAll(string(b), "/usr/sbin/asterisk", fake)), 0700); e != nil {
+		t.Fatal(e)
+	}
+	for _, failed := range []string{"core show version", "sip show channelstats", "pjsip show channelstats"} {
+		script := "#!/bin/sh\ncase \"$4\" in '" + failed + "') echo partial;exit 1;; *) echo ok;; esac\n"
+		if e = os.WriteFile(fake, []byte(script), 0700); e != nil {
+			t.Fatal(e)
+		}
+		out, e := exec.Command(gateway, "media").CombinedOutput()
+		if e == nil || strings.Contains(string(out), "NW_MEDIA_END") {
+			t.Fatalf("failed child %s accepted: %s %v", failed, out, e)
+		}
+	}
+}

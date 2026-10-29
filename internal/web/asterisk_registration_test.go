@@ -312,8 +312,32 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 	}
 	_, e = svc.Collect(collection.WithRequest(ctx, collection.Request{Source: "operator", Collectors: []string{activity.Collector}}), p, rec.Target())
 	must(e)
+
+	grant.Set("media_scope", "yes")
+	grant.Set("media", "yes")
+	if response := request(h, "POST", connection, grant, cookie); response.Code != 303 {
+		t.Fatal("media scope", response.Code)
+	}
+	bindings, e = db.AMIBindings(ctx, p)
+	must(e)
+	mediaAt := time.Now().UTC()
+	mediaEvent, ok := ami.Normalize(ami.Frame{"event": {"RTCPReceived"}, "uniqueid": {"1.1"}, "ssrc": {"0x12345678"}, "pt": {"201(RR)"}, "reportcount": {"1"}, "report0sourcessrc": {"0xabcdef01"}, "report0fractionlost": {"64"}, "report0cumulativelost": {"7"}, "report0iajitter": {"80"}, "report0lsr": {"42"}, "rtt": {"0.125"}, "calleridnum": {"private-caller"}}, mediaAt)
+	if !ok {
+		t.Fatal("media fixture")
+	}
+	mediaEvent.Sequence = 2
+	must(db.AMITransition(ctx, bindings[0], session, "connected", "", mediaAt, 0, false))
+	must(db.PersistAMIEvent(ctx, bindings[0], session, mediaEvent, 0))
 	before = exec.calls.Load()
 	page = request(h, "GET", path, nil, cookie)
+	for _, label := range []string{"Media quality", "25.00% interval", "80 RTP timestamp units", "125.000 ms", "1 active channels with current media observations"} {
+		if !strings.Contains(page.Body.String(), label) {
+			t.Fatal("populated media render", label, page.Code)
+		}
+	}
+	if strings.Contains(page.Body.String(), "%!") {
+		t.Fatal("invalid numeric formatting")
+	}
 	for _, label := range []string{"Verified current activity", "1 active channels", "1 active bridges", "SIP/phone-00000001", "room-meetme", "room-confbridge", "Uniqueid 1.1", "12 s at last observation", "account ownership unverified"} {
 		if page.Code != 200 || !strings.Contains(page.Body.String(), label) {
 			t.Fatal("activity UI", label, page.Code, page.Body.String())
@@ -327,13 +351,13 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 		consoleBrowser(t, h, cookie, path)
 	}
 	page = request(h, "GET", path+"?channel=unmatched", nil, cookie)
-	if strings.Contains(page.Body.String(), "<td>SIP/phone-00000001") || exec.calls.Load() != before {
+	if strings.Contains(strings.SplitN(page.Body.String(), `<div id="media-quality"`, 2)[0], "<td>SIP/phone-00000001") || !strings.Contains(page.Body.String(), "0 active channels matching search") || exec.calls.Load() != before {
 		t.Fatal("activity search or passive safety")
 	}
 	must(sched.Control(ctx, p, scheduler.Control{Kind: "asset", ID: rec.AssetID, Paused: true}))
 	page = request(h, "GET", path, nil, cookie)
 	if page.Code != 200 || !strings.Contains(page.Body.String(), "Authentication monitoring unavailable") {
-		t.Fatal("pause coverage")
+		t.Fatal("pause coverage", page.Code, page.Body.String())
 	}
 	if strings.Contains(page.Body.String(), "Verified current activity") || !strings.Contains(page.Body.String(), "Current activity unverified") {
 		t.Fatal("paused activity current")

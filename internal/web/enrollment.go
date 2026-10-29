@@ -13,13 +13,13 @@ import (
 )
 
 type enrollmentData struct {
-	Asset                      inventory.Asset
-	Endpoints                  []inventory.Endpoint
-	Records                    []connections.Record
-	References                 []string
-	Standard                   map[string]bool
-	Helper                     map[string]bool
-	Auth, AuthHelper, Activity map[string]bool
+	Asset                             inventory.Asset
+	Endpoints                         []inventory.Endpoint
+	Records                           []connections.Record
+	References                        []string
+	Standard                          map[string]bool
+	Helper                            map[string]bool
+	Auth, AuthHelper, Activity, Media map[string]bool
 }
 
 func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,13 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 						if expandedActivity, ok := s.store.(interface {
 							SetStandardMonitoringWithActivity(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, bool, bool, bool, bool) error
 						}); ok {
-							err = expandedActivity.SetStandardMonitoringWithActivity(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes", r.PostForm.Get("auth_logs") == "yes", r.PostForm.Get("auth_helper") == "yes", r.PostForm.Get("activity") == "yes")
+							if mediaGrant, ok := s.store.(interface {
+								SetStandardMonitoringWithMedia(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, bool, bool, bool, bool, bool) error
+							}); ok && r.PostForm.Has("media_scope") {
+								err = mediaGrant.SetStandardMonitoringWithMedia(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes", r.PostForm.Get("auth_logs") == "yes", r.PostForm.Get("auth_helper") == "yes", r.PostForm.Get("activity") == "yes", r.PostForm.Get("media") == "yes")
+							} else {
+								err = expandedActivity.SetStandardMonitoringWithActivity(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes", r.PostForm.Get("auth_logs") == "yes", r.PostForm.Get("auth_helper") == "yes", r.PostForm.Get("activity") == "yes")
+							}
 						} else {
 							err = expanded.SetStandardMonitoringWithAuth(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes", r.PostForm.Get("auth_logs") == "yes", r.PostForm.Get("auth_helper") == "yes")
 						}
@@ -134,6 +140,7 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 	d.Enrollment.Auth = map[string]bool{}
 	d.Enrollment.AuthHelper = map[string]bool{}
 	d.Enrollment.Activity = map[string]bool{}
+	d.Enrollment.Media = map[string]bool{}
 	if grant, yes := s.store.(interface {
 		StandardMonitoringAllowed(context.Context, workspace.Principal, sshcli.Target) error
 		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
@@ -143,6 +150,7 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 			d.Enrollment.Helper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_helper") == nil
 			d.Enrollment.Auth[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_auth") == nil
 			d.Enrollment.AuthHelper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_auth_helper") == nil
+			d.Enrollment.Media[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_media") == nil
 			d.Enrollment.Activity[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_activity") == nil
 		}
 	}

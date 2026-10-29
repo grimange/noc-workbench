@@ -26,7 +26,7 @@ func TestFramesGreetingRepeatedMalformedBounded(t *testing.T) {
 	if e != nil || len(f["variable"]) != 2 || f.One("Variable") != "" {
 		t.Fatal("repeated headers lost")
 	}
-	for name, s := range map[string]string{"LF": "Event: Foo\n\n", "partial": "Event: PeerStatus\r\nPeer: SIP/10", "fold": "Event: Foo\r\n bad\r\n\r\n", "control": "Event: F\x00oo\r\n\r\n", "longline": "Event: " + strings.Repeat("x", 8192) + "\r\n\r\n", "bigframe": strings.Repeat("Header: "+strings.Repeat("x", 1024)+"\r\n", 65) + "\r\n", "headers": strings.Repeat("X: a\r\n", 129) + "\r\n"} {
+	for name, s := range map[string]string{"LF": "Event: Foo\n\n", "partial": "Event: PeerStatus\r\nPeer: SIP/10", "fold": "Event: Foo\r\n bad\r\n\r\n", "control": "Event: F\x00oo\r\n\r\n", "longline": "Event: " + strings.Repeat("x", 8192) + "\r\n\r\n", "bigframe": strings.Repeat("Header: "+strings.Repeat("x", 1024)+"\r\n", 65) + "\r\n", "headers": strings.Repeat("X: a\r\n", 385) + "\r\n"} {
 		t.Run(name, func(t *testing.T) {
 			if _, e := NewDecoder(strings.NewReader(s)).Read(); e == nil {
 				t.Fatal("invalid frame accepted")
@@ -207,5 +207,34 @@ func TestExplicitActivitySubscription(t *testing.T) {
 	}
 	if e := <-done; e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestExplicitReportingSubscription(t *testing.T) {
+	for _, tc := range []struct {
+		activity, media bool
+		want            string
+	}{{false, false, "system"}, {true, false, "system,call"}, {false, true, "system"}, {true, true, "system,call,reporting"}} {
+		client, server := net.Pipe()
+		done := make(chan error, 1)
+		go func() {
+			defer server.Close()
+			io.WriteString(server, "Asterisk Call Manager/7.0.3\r\n")
+			f, e := NewDecoder(server).Read()
+			if e != nil || f.One("Events") != tc.want || f.One("Action") != "Login" {
+				done <- errors.New("unexpected reporting authority or action")
+				return
+			}
+			_, e = io.WriteString(server, "Response: Success\r\nActionID: nw-login\r\n\r\n")
+			done <- e
+		}()
+		_, e := Login(context.Background(), client, "monitor", "synthetic-secret-123", tc.activity, tc.media)
+		client.Close()
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = <-done; e != nil {
+			t.Fatal(e)
+		}
 	}
 }

@@ -96,6 +96,8 @@ type command struct {
 // Registry entries are source-controlled static shell text. No caller can add
 // commands or interpolate remote values. Optional sources have explicit framing.
 var registry = map[string]command{
+	"asterisk.media.helper.v1":         {"/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe media", 5 * time.Second, 64 * 1024},
+	"asterisk.media.v1":                {"set -e; export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; asterisk -rx 'core show version' 2>&1; printf '\\nNW_MEDIA_sip\\n'; asterisk -rx 'sip show channelstats' 2>&1; printf '\\nNW_MEDIA_pjsip\\n'; asterisk -rx 'pjsip show channelstats' 2>&1; printf '\\nNW_MEDIA_END\\n'", 5 * time.Second, 64 * 1024},
 	"asterisk.activity.helper.v1":      {"/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe activity", 5 * time.Second, 64 * 1024},
 	"asterisk.activity.v1":             {"set -e; export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; asterisk -rx 'core show version' 2>&1; printf '\\nNW_ACTIVITY_runtime\\n'; /bin/ps -C asterisk -o lstart=,pid= | /usr/bin/sha256sum; printf '\\nNW_ACTIVITY_channels\\n'; asterisk -rx 'core show channels concise' 2>&1; printf '\\nNW_ACTIVITY_bridges\\n'; asterisk -rx 'bridge show all' 2>&1; printf '\\nNW_ACTIVITY_meetme\\n'; asterisk -rx 'meetme list concise' 2>&1; printf '\\nNW_ACTIVITY_confbridge\\n'; asterisk -rx 'confbridge list' 2>&1; printf '\\nNW_ACTIVITY_runtime_end\\n'; /bin/ps -C asterisk -o lstart=,pid= | /usr/bin/sha256sum; printf '\\nNW_ACTIVITY_END\\n'", 5 * time.Second, 64 * 1024},
 	"asterisk.auth.v1":                 {"/usr/bin/timeout -k 1 4 /usr/bin/python3 -I -c '" + strings.ReplaceAll(asteriskAuthReader, "'", "'\"'\"'") + "'", 5 * time.Second, 64 * 1024},

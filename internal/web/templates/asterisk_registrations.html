@@ -6,6 +6,7 @@
 {{if not .Server.Asterisk.Authorized}}<p><a href="/servers/{{.Server.Detail.ID}}/connection">Authorize Standard Server Monitoring</a> for this verified connection. Remote Asterisk observation access is also required.</p>{{end}}
 {{template "asterisk-ami" .}}
 {{template "asterisk-activity" .}}
+{{template "asterisk-media" .}}
 {{with .Server.Asterisk.Auth}}
 <div class="authentication-monitoring" id="authentication-events">
 <h3>Authentication events</h3>

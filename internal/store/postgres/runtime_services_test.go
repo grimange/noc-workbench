@@ -265,7 +265,7 @@ func TestIntegrationTenCollectorAttempt(t *testing.T) {
 	registry := linux.Registry().Extend(asterisk.Specs()...).Extend(services.Specs()...)
 	ids := []string{}
 	for _, id := range registry.IDs() {
-		if id != asterisk.RegistrationCollector && id != "asterisk.activity" {
+		if id != asterisk.RegistrationCollector && id != "asterisk.activity" && id != "asterisk.media" {
 			ids = append(ids, id)
 		}
 	}

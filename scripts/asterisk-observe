@@ -5,17 +5,24 @@ set -eu
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
 unset ASTERISK_CONFIG AST_CONFIG_DIR ENV BASH_ENV CDPATH
 [ "$#" -eq 1 ] || exit 64
-case "$1" in identity|registrations|activity) ;; *) exit 64 ;; esac
+case "$1" in identity|registrations|activity|media) ;; *) exit 64 ;; esac
 # The root-owned timeout supervises the complete process group, including CLI
 # children, even when the SSH client disconnects. No independent remote daemon.
 exec /usr/bin/timeout -k 1 4 /bin/sh -s -- "$1" <<'BUNDLE'
 observe() {
     /usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -rx "$1" 2>&1 || {
-        [ "$mode" != activity ] || exit 1
+        case "$mode" in activity|media) exit 1 ;; esac
     }
 }
 mode=$1
 observe 'core show version'
+if [ "$1" = media ]; then
+    printf '\nNW_MEDIA_sip\n'
+    observe 'sip show channelstats'
+    printf '\nNW_MEDIA_pjsip\n'
+    observe 'pjsip show channelstats'
+    printf '\nNW_MEDIA_END\n'
+fi
 if [ "$1" = activity ]; then
     printf '\nNW_ACTIVITY_runtime\n'
     /bin/ps -C asterisk -o lstart=,pid= | /usr/bin/sha256sum

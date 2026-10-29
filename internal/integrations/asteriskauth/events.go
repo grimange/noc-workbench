@@ -87,6 +87,17 @@ func ParseLine(line string, zone string, now time.Time) (*Event, string) {
 		switch kind {
 		case "ChallengeSent", "SuccessfulAuth", "RequestBadFormat":
 			return nil, ""
+		case "RequestNotAllowed":
+			// AMI action authorization denial does not establish authentication
+			// failure. In particular, a correctly restricted read-only manager
+			// account emits this when a forbidden action is rejected.
+			if fields["Service"] != "AMI" {
+				return nil, "unsupported_event"
+			}
+			if fields["EventVersion"] != "1" {
+				return nil, "unsupported_event_version"
+			}
+			return nil, ""
 		case "InvalidPassword", "InvalidAccountID", "ChallengeResponseFailed":
 		default:
 			return nil, "unsupported_event"

@@ -53,6 +53,31 @@ func TestAsterisk18MillisecondLogPrefix(t *testing.T) {
 		t.Fatalf("%+v %s", e, code)
 	}
 }
+
+func TestAMIActionDenialIsNotAuthenticationFailure(t *testing.T) {
+	line := strings.Replace(securityLine("RequestNotAllowed", "observer", "IPV4/TCP/127.0.0.1/12345"), `Service="PJSIP"`, `Service="AMI"`, 1)
+	line += `,RequestType="Action: Command",RequestParams="sensitive-request-data"`
+	if event, code := ParseLine(line, "+0000", testNow); event != nil || code != "" {
+		t.Fatalf("action denial treated as authentication failure: %+v %q", event, code)
+	}
+	b, err := Normalize(wireData(line+"\n", 0, int64(len(line)+1), false, true), nil, testNow)
+	if err != nil || b.Status != "current_with_gap" || b.Rejected != 0 || len(b.Events) != 0 || b.After.Offset != int64(len(line)+1) {
+		t.Fatalf("recognized denial did not advance cleanly: %+v %v", b, err)
+	}
+	encoded, _ := json.Marshal(b)
+	if strings.Contains(string(encoded), "sensitive") || strings.Contains(string(encoded), "observer") {
+		t.Fatal("denied request material persisted")
+	}
+	for _, tc := range []struct{ line, code string }{
+		{strings.Replace(line, `Service="AMI"`, `Service="PJSIP"`, 1), "unsupported_event"},
+		{strings.Replace(line, `EventVersion="1"`, `EventVersion="2"`, 1), "unsupported_event_version"},
+		{strings.Replace(line, `SecurityEvent="RequestNotAllowed"`, `SecurityEvent="FutureEvent"`, 1), "unsupported_event"},
+	} {
+		if event, code := ParseLine(tc.line, "+0000", testNow); event != nil || code != tc.code {
+			t.Fatalf("unsupported denial silently accepted: %+v %q", event, code)
+		}
+	}
+}
 func TestMessageWarnings(t *testing.T) {
 	cases := []struct {
 		line, kind, account, ip string

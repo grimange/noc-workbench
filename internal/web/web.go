@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
+	"noc-workbench/internal/integrations/asteriskami"
 	"noc-workbench/internal/integrations/vicidialapi"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/scheduler"
@@ -49,6 +50,7 @@ type Store interface {
 	GetNote(context.Context) (string, error)
 }
 type Options struct {
+	AMI                   *asteriskami.Service
 	VICIdialAPI           *vicidialapi.Service
 	Scheduler             *scheduler.Service
 	Enrollment            *connections.Service
@@ -149,6 +151,7 @@ func New(store Store, options Options) http.Handler {
 	mux.HandleFunc("POST /servers/{asset}/monitoring", s.serverMonitoring)
 	mux.HandleFunc("POST /servers/{asset}/maintenance", s.serverMaintenance)
 	mux.HandleFunc("POST /servers/{asset}/asterisk", s.serverAsterisk)
+	mux.HandleFunc("POST /servers/{asset}/ami", s.serverAMI)
 	mux.HandleFunc("GET /customers", s.customers)
 	mux.HandleFunc("GET /customers/new", s.customerForm)
 	mux.HandleFunc("POST /customers", s.customerForm)

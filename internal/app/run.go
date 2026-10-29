@@ -16,11 +16,13 @@ import (
 	"noc-workbench/internal/collectors/services"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/integrations/asterisk"
+	"noc-workbench/internal/integrations/asteriskami"
 	"noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/integrations/vicidialapi"
 	"noc-workbench/internal/integrations/vicidialdiscovery"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/store/postgres"
+	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/web"
 	"noc-workbench/internal/workspace"
 )
@@ -90,7 +92,20 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	alertsDone := make(chan struct{})
 	go func() { defer close(alertsDone); alerts.Run(ctx, db) }()
 	defer func() { shutdown(); <-alertsDone }()
+	ami := &asteriskami.Service{Repository: db, Forwarder: sshcli.NewAMIForwarder(enrollment), Catalog: cfg.AMICredentialCatalog}
+	amiDone := make(chan error, 1)
+	var amiFailed atomic.Bool
+	go func() {
+		e := ami.Run(ctx)
+		if e != nil {
+			amiFailed.Store(true)
+			shutdown()
+		}
+		amiDone <- e
+	}()
+	defer func() { shutdown(); <-amiDone }()
 	handler := web.New(db, web.Options{
+		AMI:        ami,
 		Enrollment: enrollment, Discovery: discovery, Scheduler: scheduling, VICIdialAPI: api, BaseURL: cfg.BaseURL, PasswordHash: cfg.PasswordHash,
 		SessionTTL: cfg.SessionTTL, SecureCookie: cfg.SecureCookie,
 	})
@@ -98,6 +113,9 @@ func Run(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	err = serve(ctx, listener, handler, logger)
 	if ownerLost.Load() {
 		return errors.New("application execution ownership lost; restart required for safe recovery")
+	}
+	if amiFailed.Load() {
+		return errors.New("AMI session recovery failed; restart required")
 	}
 	if schedulerFailed.Load() {
 		return errors.New("scheduler recovery failed; restart required")

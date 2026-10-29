@@ -157,3 +157,14 @@ only a boundary hash, offset, discard flag and coverage limitation. Event fields
 are allowlisted operational identities, timestamps, reason codes and addresses.
 Existing bounded sample retention applies to normalized events. No migration
 changes existing authority, schedules, trust, inventory or Asterisk configuration.
+
+
+NW-37 Stage C migration `020_asterisk_ami.sql` adds a revision/digest-bound AMI
+grant, sessions, transitions and normalized allowlisted events. Composite foreign
+keys preserve customer/environment/asset/endpoint/profile ownership through the
+event's session. A partial unique index permits one unfinished session per asset.
+No credentials or raw AMI frames are stored. `(session_id, sequence)` is the
+idempotency key within a non-replayable live session. Receipt time, optional
+Asterisk time, gap state and drop count remain separate evidence. Recovery ends
+unfinished sessions with a gap; it does not refresh historical event timestamps.
+Migration 020 creates no enabled grants and preserves SSH history/auth cursors.

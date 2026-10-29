@@ -219,6 +219,24 @@ func (s *Service) Create(ctx context.Context, p workspace.Principal, customer, e
 	return s.Repository.CreateEnrollment(ctx, p, r)
 }
 func (s *Service) Approve(ctx context.Context, p workspace.Principal, t sshcli.Target, permission workspace.Permission) (sshcli.Profile, error) {
+	return s.approve(ctx, p, t, permission, true)
+}
+
+// ApproveAMI reuses enrollment and independent host identity, without occupying
+// the finite-command guard. The dedicated forwarding transport additionally
+// requires its own revision/digest-bound AMI grant and separate SSH credential.
+func (s *Service) ApproveAMI(ctx context.Context, p workspace.Principal, t sshcli.Target) (sshcli.Profile, error) {
+	profile, err := s.approve(ctx, p, t, sshcli.ExecutePermission, false)
+	if err == nil {
+		r, e := s.Repository.Enrollment(ctx, t.EndpointID, t.ProfileID)
+		if e != nil || r.State != "connection_verified" || r.Target() != t {
+			return sshcli.Profile{}, workspace.ErrDenied
+		}
+	}
+	return profile, err
+}
+
+func (s *Service) approve(ctx context.Context, p workspace.Principal, t sshcli.Target, permission workspace.Permission, finite bool) (sshcli.Profile, error) {
 	if permission != sshcli.ProfileUse && permission != sshcli.ExecutePermission {
 		return sshcli.Profile{}, workspace.ErrDenied
 	}
@@ -229,7 +247,7 @@ func (s *Service) Approve(ctx context.Context, p workspace.Principal, t sshcli.T
 	if _, blocked := s.quarantined.Load(t.ProfileID); blocked {
 		return sshcli.Profile{}, ErrState
 	}
-	if s.guardAllowed(ctx, t) != nil {
+	if finite && s.guardAllowed(ctx, t) != nil {
 		return sshcli.Profile{}, ErrState
 	}
 	if r.Target() != t || s.allowed(p, permission, r) != nil {

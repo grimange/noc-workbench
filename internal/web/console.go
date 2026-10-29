@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"time"
 
+	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/health"
+	ami "noc-workbench/internal/integrations/asteriskami"
 	"noc-workbench/internal/integrations/vicidialdiscovery"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/workspace"
@@ -202,10 +204,22 @@ func (s *Server) consoleEvents(w http.ResponseWriter, r *http.Request) {
 				rows[i].Runtime.Rows[j].AgeSeconds = 0
 			}
 		}
+		var amiState ami.View
+		if id != "" && len(rows) == 1 {
+			if repo, ok := s.store.(amiReader); ok && rows[0].Runtime.Profile.Target.ProfileID != "" {
+				v := rows[0]
+				amiState, e = repo.AMIView(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: v.CustomerID, EnvironmentID: v.EnvironmentID, AssetID: v.ID}, v.Runtime.Profile.Target, s.now().UTC())
+				if e != nil {
+					return [32]byte{}, e
+				}
+				amiState.Session.UpdatedAt = time.Time{}
+			}
+		}
 		b, e := json.Marshal(struct {
+			AMI    ami.View
 			Rows   []consoleServer
 			Counts fleetCounts
-		}{rows, counts})
+		}{amiState, rows, counts})
 		return sha256.Sum256(b), e
 	})
 }

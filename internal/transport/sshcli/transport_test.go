@@ -224,10 +224,10 @@ func TestChildTreeAndCapacityRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal("child never started")
 	}
-	// A dead orphan may briefly be a zombie awaiting the OS reaper. It must
+	// A dead orphan may briefly be a zombie or kernel-dead task awaiting the OS reaper. It must
 	// never remain running, and the adapter must have reaped its direct child.
 	state, err := os.ReadFile("/proc/" + string(b) + "/stat")
-	if err == nil && !strings.Contains(string(state), ") Z ") {
+	if err == nil && !strings.Contains(string(state), ") Z ") && !strings.Contains(string(state), ") X ") {
 		t.Fatalf("descendant survived: %s", state)
 	}
 	e.executable = fake(t, "exit 0")

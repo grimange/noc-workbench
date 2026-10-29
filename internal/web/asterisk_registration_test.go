@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/health"
 	ast "noc-workbench/internal/integrations/asterisk"
+	ami "noc-workbench/internal/integrations/asteriskami"
 	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/scheduler"
@@ -124,6 +126,7 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 	var db *postgres.Store
 	var sched *scheduler.Service
 	var svc *collection.Service
+	var amiCredential sshcli.AMICredential
 	exec := &registrationWebExecutor{}
 	h := inventoryFixtureWith(t, func(store *postgres.Store, o *Options) {
 		db = store
@@ -152,7 +155,13 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 			}
 			rec, e = enroll.Act(ctx, p, ep.ID, rec.ID, rec.Revision, action, lab.Fingerprint, reason)
 			must(e)
+
 		}
+		amiCredential = sshcli.AMICredential{ID: "synthetic", ProfileID: rec.ID, ProfileVersion: rec.Revision, SSHUser: "amionly", IdentityFile: "/synthetic/key", IdentitySHA256: strings.Repeat("a", 64), Port: 5038, Username: "monitor", Secret: "synthetic-only-secret", Enabled: true}
+		catalog := filepath.Join(t.TempDir(), "ami.json")
+		data, _ := json.Marshal([]sshcli.AMICredential{amiCredential})
+		must(os.WriteFile(catalog, data, 0600))
+		o.AMI = &ami.Service{Repository: db, Catalog: catalog}
 	})
 	cookie := authenticate(t, h)
 	path := "/servers/" + rec.AssetID
@@ -216,6 +225,44 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 		if page.Code != 200 || !strings.Contains(page.Body.String(), label) {
 			t.Fatal("missing", label, page.Code, page.Body.String())
 		}
+	}
+	// AMI authorization is explicit and passive; no worker is started by GET/POST/SSE.
+	amiForm := url.Values{"csrf": {token}, "profile": {rec.ID}, "endpoint": {rec.EndpointID}, "revision": {fmt.Sprint(rec.Revision)}, "credential_ref": {"synthetic"}, "authorize": {"yes"}}
+	if request(h, "POST", path+"/ami", nil).Code != 401 || request(h, "POST", path+"/ami", nil, cookie).Code != 403 {
+		t.Fatal("AMI auth/CSRF")
+	}
+	amiForm.Set("revision", "0")
+	if request(h, "POST", path+"/ami", amiForm, cookie).Code != 409 {
+		t.Fatal("AMI stale revision")
+	}
+	amiForm.Set("revision", fmt.Sprint(rec.Revision))
+	amiForm.Set("credential_ref", "unapproved")
+	if request(h, "POST", path+"/ami", amiForm, cookie).Code != 409 {
+		t.Fatal("AMI arbitrary credential")
+	}
+	amiForm.Set("credential_ref", "synthetic")
+	if response := request(h, "POST", path+"/ami", amiForm, cookie); response.Code != 303 {
+		t.Fatal("AMI grant", response.Code, response.Body.String())
+	}
+	bindings, e := db.AMIBindings(ctx, p)
+	must(e)
+	if len(bindings) != 1 || !bindings[0].Eligible {
+		t.Fatal(bindings)
+	}
+	at := time.Now().UTC()
+	session, e := db.BeginAMISession(ctx, bindings[0], at)
+	must(e)
+	must(db.AMITransition(ctx, bindings[0], session, "connected", "", at, 0, false))
+	sourceAt := at.Add(-time.Second)
+	must(db.PersistAMIEvent(ctx, bindings[0], session, ami.Event{Name: "ContactStatus", Technology: "PJSIP", Endpoint: "synthetic-endpoint", Address: "[2001:db8::50]:5061", State: "Reachable", SourceAt: &sourceAt, ReceivedAt: at, Sequence: 1}, 0))
+	page = request(h, "GET", path, nil, cookie)
+	for _, label := range []string{"Live AMI events", "connected", "ContactStatus", "synthetic-endpoint", "[2001:db8::50]:5061", "Asterisk UTC", "Revoke AMI forwarding"} {
+		if page.Code != 200 || !strings.Contains(page.Body.String(), label) {
+			t.Fatal("AMI UI", label, page.Code, page.Body.String())
+		}
+	}
+	if strings.Contains(page.Body.String(), amiCredential.Secret) || strings.Contains(page.Body.String(), amiCredential.IdentityFile) {
+		t.Fatal("AMI credential leak")
 	}
 	consoleBrowser(t, h, cookie, path)
 	if exec.calls.Load() != before {

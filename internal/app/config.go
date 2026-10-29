@@ -17,6 +17,7 @@ type Config struct {
 	CollectionTTL, CollectionRunDays, CollectionSampleDays int
 	SSHCredentialCatalog                                   string
 	APIcredentialCatalog                                   string
+	AMICredentialCatalog                                   string
 	Listen                                                 string
 	BaseURL                                                string
 	DatabaseURL                                            string
@@ -31,6 +32,7 @@ type Config struct {
 func Load() (Config, error) {
 	c := Config{
 		SSHCredentialCatalog: os.Getenv("NOC_SSH_CREDENTIAL_CATALOG"),
+		AMICredentialCatalog: os.Getenv("NOC_ASTERISK_AMI_CREDENTIAL_CATALOG"),
 		APIcredentialCatalog: os.Getenv("NOC_VICIDIAL_API_CREDENTIAL_CATALOG"),
 		Listen:               value("NOC_LISTEN", "127.0.0.1:8080"),
 		BaseURL:              value("NOC_BASE_URL", "http://127.0.0.1:8080"),

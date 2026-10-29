@@ -404,7 +404,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 19 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 20 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {
@@ -532,3 +532,5 @@ func TestIntegrationGuardCancelledReturning(t *testing.T) {
 		t.Fatalf("unacknowledged insert survived cancellation: %d %v", n, e)
 	}
 }
+
+func TestIntegrationNW037AMIUpgrade(t *testing.T) { testUpgrade(t, "020", 19) }

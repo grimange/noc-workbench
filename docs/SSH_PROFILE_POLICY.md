@@ -62,3 +62,17 @@ new groups, logger reload or permission change is involved. Both grants are
 rechecked after transport capacity admission and at persistence. JSON cursor
 stdin is enabled only for these two commands, retaining no TTY and all host-key,
 identity, route, forwarding and environment restrictions.
+
+
+NW-37 Stage C adds a separate explicitly authorized AMI capability. It reuses the
+current enrollment and independent host-key approval, but uses a dedicated
+protected SSH key and AMI account. Its fixed `-W 127.0.0.1:<protected port>` stream
+has no remote command or interactive shell; browser data cannot choose the
+forwarding destination. Ordinary finite collectors still disable forwarding.
+Administrator SSHD/key restrictions must permit only this destination and deny
+remote forwarding, TTY, agent/X11 forwarding and shell commands. The account's
+AMI `write=none` is required; application action allowlisting alone is insufficient
+for coarse AMI write classes. Runtime sends only Login and Ping. The current
+enrollment revision, catalog digest, grants and monitoring lifecycle are rechecked
+while connected. Persistent sessions do not occupy a finite collection guard;
+the application ownership lock and unique live-session index protect recovery.

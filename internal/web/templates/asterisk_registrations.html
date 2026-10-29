@@ -4,6 +4,7 @@
 <p><strong>{{.Server.Asterisk.Status}}</strong></p>
 {{if .Server.Asterisk.AttemptAt.IsZero}}{{else}}<p>Last attempt: {{localTime .Server.Asterisk.AttemptAt}} · {{.Server.Asterisk.Outcome}}{{with .Server.Asterisk.Diagnostic}} · {{.}}{{end}}</p>{{end}}
 {{if not .Server.Asterisk.Authorized}}<p><a href="/servers/{{.Server.Detail.ID}}/connection">Authorize Standard Server Monitoring</a> for this verified connection. Remote Asterisk observation access is also required.</p>{{end}}
+{{template "asterisk-ami" .}}
 {{with .Server.Asterisk.Auth}}
 <div class="authentication-monitoring" id="authentication-events">
 <h3>Authentication events</h3>

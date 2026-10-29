@@ -567,7 +567,7 @@ the existing versioned policy evaluator (default TTL 180 seconds). Failed attemp
 preserve prior observations and original timestamps. Disabled, paused, blocked,
 untrusted or stale evidence has Unknown current runtime state; its last observed
 state remains available. Dashboard and Server Details present current runtime monitoring before historical installation discovery;
-NW-37 Stage A adds optional registration snapshots; Stage B adds optional normalized authentication events; AMI, conferences and RTP diagnostics remain deferred.
+NW-37 Stage A adds optional registration snapshots; Stage B adds optional normalized authentication events; Stage C adds restricted live AMI events. Conferences and RTP diagnostics remain deferred.
 
 
 ### Monitoring console (NW-36 Slice C)
@@ -721,4 +721,59 @@ backlog never establish a current zero-failure result. Successful caught-up read
 after a gap show current collection with explicit incomplete historical coverage;
 their observed counts cannot establish a complete zero-failure result. Known gap history
 remains explicit for that enrollment/source across revisions. Passive GET and SSE only read persisted
-data. No AMI transport, account blocking or remote security action is included.
+data. Stage B adds no account blocking or remote security action. Restricted AMI transport is described below.
+
+
+### Restricted live AMI events (NW-37 Stage C)
+
+Server Details → Asterisk now supports a separate, explicit AMI forwarding grant.
+An administrator must first configure a loopback-only AMI listener, a dedicated
+AMI identity with `read=system`, `write=none`, and account-specific include filters
+for `FullyBooted`, `PeerStatus`, `ContactStatus`, `Registry`, and `Shutdown`.
+The application sends only fixed Login and Ping actions; it provides no AMI
+command or call-control interface. Legacy `eventfilter = ^Event: Name` syntax
+works on the verified Asterisk 18 installation; newer filtering syntax must be
+verified against the installed revision before use.
+
+A dedicated SSH identity must allow only local direct forwarding to that exact
+loopback port. Use administrator-owned authorized keys with
+`restrict,port-forwarding,permitopen="127.0.0.1:5038",command="/bin/false"`
+(adjust only to the inspected port), plus an SSHD `Match User` block setting
+`AllowTcpForwarding local`, `PermitOpen 127.0.0.1:5038`, `PermitListen none`,
+`ForceCommand /bin/false`, and disabling TTY, agent/X11 forwarding and password
+login. Preserve any existing `AllowUsers` restrictions when adding this identity.
+Validate `sshd -t` and effective `sshd -T -C` settings before reload. The regular
+collector executor continues to disable all forwarding.
+
+Set `NOC_ASTERISK_AMI_CREDENTIAL_CATALOG` to a protected mode-0600 JSON array,
+owned by root or the application user. Each entry has `ID`, `ProfileID`,
+`ProfileVersion`, `SSHUser`, absolute `IdentityFile`, lowercase SHA-256
+`IdentitySHA256`, numeric `Port`, `Username`, `Secret`, and `Enabled` fields.
+Protect the dedicated private key identically. Credentials never enter the
+browser or database; only the credential reference and digest are persisted.
+Enrollment revision, protected catalog, current trust, monitoring authorization,
+pause and emergency-stop state govern the worker. Changing the catalog requires
+explicit reauthorization of its new digest.
+
+One managed connection per authorized server runs without a browser. It uses
+strict enrolled host-key verification and OpenSSH `-W` to the protected loopback
+port. Establishment is limited to 10 seconds, heartbeats run every 20 seconds
+with a 10-second response deadline, and reconnect backoff is bounded to 1–32
+seconds. Shutdown and revocation close and join the transport; restart recovery
+ends prior sessions with an explicit coverage gap. AMI failure does not mark
+Linux unreachable. Existing 60-second SSH collectors retain their schedule.
+
+Only normalized allowlisted operational fields are retained. SIP URI credentials,
+caller/channel payloads, authentication material and unknown events are omitted.
+The 128-event queue records drops as coverage gaps; database failure disconnects
+the non-replayable stream. Receipt timestamps are distinct from optional Asterisk
+timestamps. Session sequences make persistence retries idempotent within a
+session; AMI does not supply durable cross-session replay identities. The UI
+shows current connection state, recent events, UTC provenance and transitions.
+Events are retained for seven days, sessions for thirty days, with bounded
+cleanup during ingestion. Passive GET/SSE reads do not connect or collect.
+
+The verified lab emitted `FullyBooted` on login. ContactStatus, PeerStatus and
+Registry normalization have deterministic fixtures; a fixture does not establish
+that a particular live installation emits those families. Channels, conferences
+and RTP/RTCP remain NW-37 Stages D/E.

@@ -12,6 +12,7 @@ import (
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/health"
 	ast "noc-workbench/internal/integrations/asterisk"
+	ami "noc-workbench/internal/integrations/asteriskami"
 	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/transport/sshcli"
@@ -32,6 +33,8 @@ type asteriskRegistrationData struct {
 	AttemptAt                        time.Time
 	Families                         []registrationFamily
 	Auth                             auth.View
+	AMI                              ami.View
+	AMIChoices                       []ami.Choice
 }
 
 func registrationView(in health.Input, out health.Evaluation, profile scheduler.Profile, allowed, paused bool, history []collection.Evidence) asteriskRegistrationData {
@@ -179,6 +182,31 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 		if !in.Active || !in.Trusted || !(rt.Profile.Eligible || rt.Profile.EvidenceEligible) || rt.Paused || !rt.Profile.Enabled || !rt.Profile.Authorized || !slices.Contains(rt.Profile.Collectors, auth.Collector) {
 			d.Auth.Current = false
 			d.Auth.Status = "not_scheduled_or_paused"
+		}
+	}
+	d.AMI = ami.View{State: "unauthorized", Reason: "AMI forwarding has not been authorized"}
+	if repo, ok := s.store.(amiReader); ok && rt.Profile.Target.ProfileID != "" {
+		var err error
+		d.AMI, err = repo.AMIView(r.Context(), operatorPrincipal(), in.Scope, rt.Profile.Target, time.Now().UTC())
+		if err != nil {
+			return d, err
+		}
+		if rt.Paused || rt.Profile.Paused {
+			d.AMI.Current = false
+			d.AMI.State = "paused"
+			d.AMI.Reason = "Monitoring is paused"
+		} else if !in.Active || !in.Trusted || !rt.Profile.EvidenceEligible || !rt.Profile.Enabled || !rt.Profile.Authorized {
+			d.AMI.Current = false
+			d.AMI.State = "unauthorized"
+			d.AMI.Reason = "Current monitoring enrollment is not eligible"
+		}
+	}
+	if s.options.AMI != nil {
+		d.AMIChoices = s.options.AMI.Choices(rt.Profile.Target)
+		if len(d.AMIChoices) == 0 && d.AMI.Current {
+			d.AMI.Current = false
+			d.AMI.State = "unauthorized"
+			d.AMI.Reason = "Protected AMI credential is unavailable or changed"
 		}
 	}
 	return d, nil

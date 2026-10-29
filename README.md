@@ -567,7 +567,7 @@ the existing versioned policy evaluator (default TTL 180 seconds). Failed attemp
 preserve prior observations and original timestamps. Disabled, paused, blocked,
 untrusted or stale evidence has Unknown current runtime state; its last observed
 state remains available. Dashboard and Server Details present current runtime monitoring before historical installation discovery;
-NW-37 Stage A adds optional registration snapshots; Stage B adds optional normalized authentication events; Stage C adds restricted live AMI events. Conferences and RTP diagnostics remain deferred.
+NW-37 Stage A adds optional registration snapshots; Stage B adds optional normalized authentication events; Stage C adds restricted live AMI events; Stage D adds channel, bridge and conference observations. RTP diagnostics remain deferred.
 
 
 ### Monitoring console (NW-36 Slice C)
@@ -644,15 +644,14 @@ is expandable, including the actual direct/gateway command identifier. Direct
 access requires permission to use Asterisk's control socket; the application does
 not change remote permissions.
 
-The optional `scripts/asterisk-observe` gateway accepts exactly `identity` or
-`registrations`, executes only the six fixed version/snapshot CLI commands, and
+The optional `scripts/asterisk-observe` gateway accepts exactly `identity`, `registrations` or
+`activity`, executes only the fixed version/snapshot CLI commands, and
 has a four-second remote deadline in addition to SSH execution/output limits.
 It must be installed by an explicitly authorized administrator at the reviewed
 root-owned, non-writable path with exact argument-specific sudoers delegation.
 Do not grant general Asterisk CLI, shell, group or control-socket access. Gateway
 selection requires both the current Asterisk grant and its explicit gateway grant,
-rechecked at transport execution. The gateway cannot run the older channel/module
-commands. Migration 018 preserves existing grants and observation checks while
+rechecked at transport execution. The activity bundle requires its own consolidated monitoring opt-in. Migration 018 preserves existing grants and observation checks while
 adding only the two matching gateway provenance pairs and the consolidated grant
 audit operation. It grants no new authority during startup.
 
@@ -728,7 +727,7 @@ data. Stage B adds no account blocking or remote security action. Restricted AMI
 
 Server Details → Asterisk now supports a separate, explicit AMI forwarding grant.
 An administrator must first configure a loopback-only AMI listener, a dedicated
-AMI identity with `read=system`, `write=none`, and account-specific include filters
+AMI identity initially using `read=system`, `write=none`, and account-specific include filters
 for `FullyBooted`, `PeerStatus`, `ContactStatus`, `Registry`, and `Shutdown`.
 The application sends only fixed Login and Ping actions; it provides no AMI
 command or call-control interface. Legacy `eventfilter = ^Event: Name` syntax
@@ -764,7 +763,8 @@ ends prior sessions with an explicit coverage gap. AMI failure does not mark
 Linux unreachable. Existing 60-second SSH collectors retain their schedule.
 
 Only normalized allowlisted operational fields are retained. SIP URI credentials,
-caller/channel payloads, authentication material and unknown events are omitted.
+caller/dialplan payloads, authentication material and unknown events are omitted.
+Stage D retains only the operational channel identifiers described below.
 The 128-event queue records drops as coverage gaps; database failure disconnects
 the non-replayable stream. Receipt timestamps are distinct from optional Asterisk
 timestamps. Session sequences make persistence retries idempotent within a
@@ -775,5 +775,57 @@ cleanup during ingestion. Passive GET/SSE reads do not connect or collect.
 
 The verified lab emitted `FullyBooted` on login. ContactStatus, PeerStatus and
 Registry normalization have deterministic fixtures; a fixture does not establish
-that a particular live installation emits those families. Channels, conferences
-and RTP/RTCP remain NW-37 Stages D/E.
+that a particular live installation emits those families. RTP/RTCP remains Stage E.
+
+
+### Channels, bridges and conferences (NW-37 Stage D)
+
+The existing Asterisk panel adds bounded channel search, reported states, observed
+duration, endpoint-resource association, bridge membership and independent
+MeetMe/ConfBridge counts. The Standard Server Monitoring form has one explicit
+**Channels and conferences** expansion. Existing grants and schedules are not
+silently expanded. AMI Login requests `system,call` events only while this grant
+is current; ordinary Stage C sessions continue to request `system` alone.
+
+Administrator setup extends only the dedicated manager account to
+`read=system,call`, retaining `write=none`, loopback binding and restricted SSH.
+Classic anchored event filters additionally admit `Newchannel`, `Newstate`,
+`Hangup`, `BridgeCreate`, `BridgeDestroy`, `BridgeEnter`, `BridgeLeave`,
+`MeetmeJoin`, `MeetmeLeave`, `ConfbridgeStart`, `ConfbridgeEnd`,
+`ConfbridgeJoin` and `ConfbridgeLeave`. Runtime still sends only Login and Ping;
+no call-control or generic CLI action is available.
+
+The fixed `asterisk.activity.v1` / `asterisk.activity.helper.v1` snapshot bundle
+uses `core show version`, `core show channels concise`, `bridge show all`,
+`meetme list concise` and `confbridge list`. It runs on the existing 60-second
+scheduler, bounded to five seconds/64 KiB and 256 objects per family. The helper
+has an additional four-second process-group deadline. Unsupported conference
+commands remain Unsupported; failed, malformed or truncated bundles never
+establish zero activity. A successful empty snapshot replaces the current set
+without manufacturing Hangup history.
+
+Canonical channel identities are scoped to enrollment, endpoint and the observed
+Asterisk process generation. Uniqueid identifies a channel; Linkedid records
+related lifecycles without inventing a call or SIP-account identity. SIP/PJSIP
+channel resources are labelled unverified until a matching fresh registration
+snapshot establishes the endpoint definition. This does not prove authentication,
+registration reachability or trunk classification. Local resources, caller names,
+numbers, dialplan contexts and application data are omitted. CLI snapshots provide
+conference counts; participant identities are available only from observed events.
+
+Snapshots and events serialize in one PostgreSQL transaction boundary. The
+persisted event journal replays activity received since snapshot start. Activity
+within the remote-read interval conservatively leaves the baseline incomplete
+until a stable snapshot succeeds, rather than claiming an exact atomic remote
+snapshot. Queued older events cannot overwrite a newer baseline, and lifecycle
+tombstones reject delayed resurrection. Disconnect, restart, queue loss, unknown
+lifecycle evidence and failed snapshots invalidate current-state claims. A fresh
+baseline in the current AMI session is required to restore them. Current snapshot
+freshness expires after 180 seconds independently of AMI connection health.
+Historical observations and normalized event timestamps remain unchanged.
+
+On the verified Asterisk 18.26.4-vici lab, the fixed snapshot returned no active
+channels, bridges or conferences; both conference commands were supported.
+Populated channel, bridge and conference transitions are tested with deterministic
+fixtures. An empty live lab does not verify emission of each populated event
+family. No calls or participants are generated for validation.

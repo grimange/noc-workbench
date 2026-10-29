@@ -91,7 +91,7 @@ func (f *fake) Execute(_ context.Context, _ workspace.Principal, _ sshcli.Target
 }
 func TestOptionalAndAuthority(t *testing.T) {
 	r := linux.Registry().Extend(Specs()...)
-	if len(r.Defaults()) != 5 || len(r.IDs()) != 10 {
+	if len(r.Defaults()) != 5 || len(r.IDs()) != 11 {
 		t.Fatal(r.IDs())
 	}
 	f := &fake{}

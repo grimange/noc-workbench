@@ -12,6 +12,7 @@ import (
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/health"
 	ast "noc-workbench/internal/integrations/asterisk"
+	activity "noc-workbench/internal/integrations/asteriskactivity"
 	ami "noc-workbench/internal/integrations/asteriskami"
 	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/scheduler"
@@ -35,6 +36,7 @@ type asteriskRegistrationData struct {
 	Auth                             auth.View
 	AMI                              ami.View
 	AMIChoices                       []ami.Choice
+	Activity                         activity.View
 }
 
 func registrationView(in health.Input, out health.Evaluation, profile scheduler.Profile, allowed, paused bool, history []collection.Evidence) asteriskRegistrationData {
@@ -208,6 +210,40 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 			d.AMI.State = "unauthorized"
 			d.AMI.Reason = "Protected AMI credential is unavailable or changed"
 		}
+	}
+	if repo, ok := s.store.(interface {
+		ActivityView(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, time.Time) (activity.View, error)
+	}); ok && rt.Profile.Target.ProfileID != "" {
+		var err error
+		d.Activity, err = repo.ActivityView(r.Context(), operatorPrincipal(), in.Scope, rt.Profile.Target, time.Now().UTC())
+		if err != nil {
+			return d, err
+		}
+		if !in.Active || !in.Trusted || rt.Paused || rt.Profile.Paused || !rt.Profile.Enabled || !rt.Profile.Authorized || !slices.Contains(rt.Profile.Collectors, activity.Collector) || !d.AMI.Current {
+			d.Activity.Current = false
+			d.Activity.Reason = "Monitoring is paused, unauthorized or awaiting a connected reconciliation"
+		}
+		query := r.URL.Query().Get("channel")
+		if len(query) > 128 {
+			return d, workspace.ErrDenied
+		}
+		d.Activity.Query = query
+		var channels []activity.Channel
+		for _, c := range d.Activity.Channels {
+			for _, family := range d.Families {
+				if family.Current && (family.Name == "sip peers" || family.Name == "pjsip endpoints") {
+					for _, row := range family.Snapshot.Rows {
+						if c.Technology == row.Technology && c.Endpoint != "" && c.Endpoint == row.ID {
+							c.Association = "Matches observed endpoint definition; authentication not established"
+						}
+					}
+				}
+			}
+			if query == "" || strings.Contains(strings.ToLower(c.Name+" "+c.Endpoint+" "+c.ID), strings.ToLower(query)) {
+				channels = append(channels, c)
+			}
+		}
+		d.Activity.Channels = channels
 	}
 	return d, nil
 }

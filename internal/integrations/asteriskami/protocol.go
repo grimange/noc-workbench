@@ -116,8 +116,8 @@ func (d *Decoder) Read() (Frame, error) {
 }
 
 // Login's only configurable wire values come from a protected credential. The
-// subscription is fixed to system events; no write class is required.
-func Login(ctx context.Context, c io.ReadWriteCloser, username, secret string) (*Decoder, error) {
+// subscription is fixed to system and call events; no write class is required.
+func Login(ctx context.Context, c io.ReadWriteCloser, username, secret string, activity ...bool) (*Decoder, error) {
 	if username == "" || len(username) > 64 || len(secret) < 16 || len(secret) > 256 || strings.ContainsAny(username+secret, "\r\n\x00") {
 		return nil, ErrUnauthorized
 	}
@@ -127,7 +127,11 @@ func Login(ctx context.Context, c io.ReadWriteCloser, username, secret string) (
 	if e := d.Greeting(); e != nil {
 		return nil, e
 	}
-	if _, e := fmt.Fprintf(c, "Action: Login\r\nActionID: nw-login\r\nUsername: %s\r\nSecret: %s\r\nEvents: system\r\n\r\n", username, secret); e != nil {
+	events := "system"
+	if len(activity) == 1 && activity[0] {
+		events = "system,call"
+	}
+	if _, e := fmt.Fprintf(c, "Action: Login\r\nActionID: nw-login\r\nUsername: %s\r\nSecret: %s\r\nEvents: %s\r\n\r\n", username, secret, events); e != nil {
 		return nil, ErrDisconnected
 	}
 	frame, e := d.Read()

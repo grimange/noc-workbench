@@ -354,3 +354,29 @@ func TestRegistrationStaticAllowlist(t *testing.T) {
 		category(t, err, Unsupported)
 	}
 }
+
+func TestActivityFixedSnapshotAllowlist(t *testing.T) {
+	p, e := fixture(t)
+	e.executable = fake(t, `for arg do printf '%s\n' "$arg"; done`)
+	r, err := e.Execute(context.Background(), actor, p.Target, "asterisk.activity.v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(r.Stdout)
+	for _, fixed := range []string{"core show version", "core show channels concise", "bridge show all", "meetme list concise", "confbridge list"} {
+		if strings.Count(text, "asterisk -rx '"+fixed+"'") != 1 {
+			t.Fatal("fixed activity command missing", fixed)
+		}
+	}
+	if !strings.Contains(text, "set -e;") || !strings.Contains(text, "-oClearAllForwardings=yes") {
+		t.Fatal("failure or no-forwarding boundary weakened")
+	}
+	for _, id := range []string{"asterisk.activity.v1; id", "asterisk.activity.helper.v1 room", "confbridge list room", "asterisk.activity.v1 $(id)"} {
+		_, err = e.Execute(context.Background(), actor, p.Target, id)
+		category(t, err, Unsupported)
+	}
+	r, err = e.Execute(context.Background(), actor, p.Target, "asterisk.activity.helper.v1")
+	if err != nil || !strings.Contains(string(r.Stdout), "/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe activity") {
+		t.Fatal("fixed helper argument", err)
+	}
+}

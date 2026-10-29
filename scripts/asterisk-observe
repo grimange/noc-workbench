@@ -1,18 +1,36 @@
 #!/bin/sh
 # Optional root-owned gateway; installation requires explicit operator approval.
-# Only two fixed observation bundles; no caller-supplied CLI text or paths.
+# Fixed observation bundles; no caller-supplied CLI text or paths.
 set -eu
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
 unset ASTERISK_CONFIG AST_CONFIG_DIR ENV BASH_ENV CDPATH
 [ "$#" -eq 1 ] || exit 64
-case "$1" in identity|registrations) ;; *) exit 64 ;; esac
+case "$1" in identity|registrations|activity) ;; *) exit 64 ;; esac
 # The root-owned timeout supervises the complete process group, including CLI
 # children, even when the SSH client disconnects. No independent remote daemon.
 exec /usr/bin/timeout -k 1 4 /bin/sh -s -- "$1" <<'BUNDLE'
 observe() {
-    /usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -rx "$1" 2>&1 || :
+    /usr/sbin/asterisk -C /etc/asterisk/asterisk.conf -rx "$1" 2>&1 || {
+        [ "$mode" != activity ] || exit 1
+    }
 }
+mode=$1
 observe 'core show version'
+if [ "$1" = activity ]; then
+    printf '\nNW_ACTIVITY_runtime\n'
+    /bin/ps -C asterisk -o lstart=,pid= | /usr/bin/sha256sum
+    printf '\nNW_ACTIVITY_channels\n'
+    observe 'core show channels concise'
+    printf '\nNW_ACTIVITY_bridges\n'
+    observe 'bridge show all'
+    printf '\nNW_ACTIVITY_meetme\n'
+    observe 'meetme list concise'
+    printf '\nNW_ACTIVITY_confbridge\n'
+    observe 'confbridge list'
+    printf '\nNW_ACTIVITY_runtime_end\n'
+    /bin/ps -C asterisk -o lstart=,pid= | /usr/bin/sha256sum
+    printf '\nNW_ACTIVITY_END\n'
+fi
 if [ "$1" = registrations ]; then
     printf '\nNW_REGISTRATIONS_sip_peers\n'
     observe 'sip show peers'

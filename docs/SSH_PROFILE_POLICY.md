@@ -76,3 +76,35 @@ for coarse AMI write classes. Runtime sends only Login and Ping. The current
 enrollment revision, catalog digest, grants and monitoring lifecycle are rechecked
 while connected. Persistent sessions do not occupy a finite collection guard;
 the application ownership lock and unique live-session index protect recovery.
+
+
+NW-37 Stage D adds an explicit `asterisk_activity` expansion within Standard
+Server Monitoring. It enables the fixed version/channel/bridge/MeetMe/ConfBridge
+snapshot bundle and the dedicated AMI connection's `system,call` subscription.
+Revocation changes the managed binding, closes the old stream and prevents queued
+activity data from entering the journal. Current authority is checked again at
+SSH execution and transactional persistence. No additional AMI connection exists.
+
+`asterisk.activity.helper.v1` executes exactly
+`/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe activity`.
+Administrator installation adds only the exact `activity` argument to existing
+root-owned gateway delegation; no per-conference identifier or browser CLI text
+is accepted. The helper is root-owned mode 0755, its sudoers file mode 0440,
+validated by `visudo`. It has a four-second process-group deadline, with the
+existing five-second/64-KiB transport limits. Command failure cannot establish a
+successful empty snapshot. The direct command uses the same fixed read-only
+commands and ordinary no-forwarding executor.
+
+The dedicated manager identity may receive only `system,call` event-read classes
+and the anchored allowlist of Stage C/D families. `write=none` remains mandatory;
+call-read permission does not authorize any AMI call-control action. Loopback
+binding, exact protected forwarding destination and separate restricted SSH key
+remain unchanged. Runtime sends only Login and Ping. Setup reloads manager
+configuration, accounting for any connection interruption; it does not restart
+Asterisk or change unrelated manager accounts.
+
+For classic Asterisk 18 event filters, use an exact event-header delimiter such
+as `eventfilter = ^Event: Newchannel[[:space:]]`. These regular expressions match
+the complete event frame; appending `$` directly after the event name rejects
+normal frames containing subsequent headers. Validate filters against full CRLF
+frames, including similarly prefixed event names that must remain excluded.

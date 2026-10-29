@@ -154,7 +154,7 @@ func TestNormalizationMinimizesSensitiveFields(t *testing.T) {
 			t.Fatal("RTT units")
 		}
 	}
-	if _, ok := Normalize(Frame{"event": {"Newchannel"}, "calleridnum": {"sensitive"}}, now); ok {
+	if _, ok := Normalize(Frame{"event": {"DialBegin"}, "calleridnum": {"sensitive"}}, now); ok {
 		t.Fatal("unrelated telephony event accepted")
 	}
 	if _, ok := Normalize(Frame{"event": {"ContactStatus", "PeerStatus"}}, now); ok {
@@ -185,5 +185,27 @@ func TestDisconnectVersusTruncatedProtocol(t *testing.T) {
 	defer a.Close()
 	if _, e := Login(context.Background(), a, "monitor", "synthetic-secret-value"); !errors.Is(e, ErrDisconnected) {
 		t.Fatal("login transport disconnect", e)
+	}
+}
+func TestExplicitActivitySubscription(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	done := make(chan error, 1)
+	go func() {
+		defer server.Close()
+		io.WriteString(server, "Asterisk Call Manager/7.0.3\r\n")
+		f, e := NewDecoder(server).Read()
+		if e != nil || f.One("Events") != "system,call" {
+			done <- errors.New("call subscription missing")
+			return
+		}
+		_, e = io.WriteString(server, "Response: Success\r\nActionID: nw-login\r\n\r\n")
+		done <- e
+	}()
+	if _, e := Login(context.Background(), client, "monitor", "synthetic-secret-123", true); e != nil {
+		t.Fatal(e)
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
 	}
 }

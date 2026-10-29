@@ -2,11 +2,13 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"noc-workbench/internal/collection"
+	activity "noc-workbench/internal/integrations/asteriskactivity"
 	ami "noc-workbench/internal/integrations/asteriskami"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
@@ -75,6 +77,7 @@ func (s *Store) AMIBindings(ctx context.Context, p workspace.Principal) ([]ami.B
 		if s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk") != nil {
 			b.Eligible = false
 		}
+		b.Activity = s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_activity") == nil
 		out = append(out, b)
 	}
 	if rows.Err() != nil || len(out) > 1000 {
@@ -187,16 +190,25 @@ func (s *Store) PersistAMIEvent(ctx context.Context, b ami.Binding, id string, e
 	if e = amiAllowed(ctx, tx, b); e != nil {
 		return e
 	}
+	if activity.IsEvent(event.Name) {
+		if !b.Activity || integrationAllowed(ctx, tx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_activity") != nil {
+			return workspace.ErrDenied
+		}
+	}
 	var gap bool
 	if tx.QueryRow(ctx, `SELECT coverage_gap FROM asterisk_ami_session WHERE id=$1 AND profile_id=$2 AND state='connected' AND ended_at IS NULL FOR UPDATE`, id, b.Target.ProfileID).Scan(&gap) != nil {
 		return workspace.ErrDenied
 	}
-	insert, e := tx.Exec(ctx, `INSERT INTO asterisk_ami_event(session_id,customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,sequence,name,technology,endpoint,aor,address,state,rtt_ms,source_at,received_at,parser_version,coverage_gap) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'1',$18) ON CONFLICT(session_id,sequence) DO NOTHING`, id, b.Scope.CustomerID, b.Scope.EnvironmentID, b.Target.AssetID, b.Target.EndpointID, b.Target.ProfileID, b.Target.ProfileVersion, event.Sequence, event.Name, event.Technology, event.Endpoint, event.AOR, event.Address, event.State, event.RTT, event.SourceAt, event.ReceivedAt, gap || dropped > 0)
+	activityJSON, _ := json.Marshal(event.Activity)
+	insert, e := tx.Exec(ctx, `INSERT INTO asterisk_ami_event(session_id,customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,sequence,name,technology,endpoint,aor,address,state,rtt_ms,source_at,received_at,parser_version,coverage_gap,activity) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'1',$18,$19) ON CONFLICT(session_id,sequence) DO NOTHING`, id, b.Scope.CustomerID, b.Scope.EnvironmentID, b.Target.AssetID, b.Target.EndpointID, b.Target.ProfileID, b.Target.ProfileVersion, event.Sequence, event.Name, event.Technology, event.Endpoint, event.AOR, event.Address, event.State, event.RTT, event.SourceAt, event.ReceivedAt, gap || dropped > 0, activityJSON)
 	if e != nil {
 		return ErrUnavailable
 	}
 	if insert.RowsAffected() == 0 {
 		return tx.Commit(ctx)
+	}
+	if err := applyActivityEvent(ctx, tx, b, id, event, dropped); err != nil {
+		return err
 	}
 	_, e = tx.Exec(ctx, `UPDATE asterisk_ami_session SET last_event_at=greatest(last_event_at,$2),updated_at=clock_timestamp(),dropped=greatest(dropped,$3),coverage_gap=coverage_gap OR $3>0 WHERE id=$1`, id, event.ReceivedAt, dropped)
 	if e != nil {
@@ -265,14 +277,18 @@ func (s *Store) AMIView(ctx context.Context, p workspace.Principal, h collection
 	if lastEvent != nil {
 		v.LastEventAt = *lastEvent
 	}
-	rows, e := s.pool.Query(ctx, `SELECT session_id::text,sequence,name,technology,endpoint,aor,address,state,rtt_ms,source_at,received_at,parser_version,coverage_gap FROM asterisk_ami_event WHERE customer_id=$1 AND environment_id=$2 AND asset_id=$3 ORDER BY received_at DESC,id DESC LIMIT 30`, h.CustomerID, h.EnvironmentID, h.AssetID)
+	rows, e := s.pool.Query(ctx, `SELECT session_id::text,sequence,name,technology,endpoint,aor,address,state,rtt_ms,source_at,received_at,parser_version,coverage_gap,activity FROM asterisk_ami_event WHERE customer_id=$1 AND environment_id=$2 AND asset_id=$3 ORDER BY received_at DESC,id DESC LIMIT 30`, h.CustomerID, h.EnvironmentID, h.AssetID)
 	if e != nil {
 		return v, ErrUnavailable
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r ami.Record
-		if rows.Scan(&r.SessionID, &r.Sequence, &r.Name, &r.Technology, &r.Endpoint, &r.AOR, &r.Address, &r.State, &r.RTT, &r.SourceAt, &r.ReceivedAt, &r.ParserVersion, &r.Gap) != nil {
+		var activityJSON []byte
+		if rows.Scan(&r.SessionID, &r.Sequence, &r.Name, &r.Technology, &r.Endpoint, &r.AOR, &r.Address, &r.State, &r.RTT, &r.SourceAt, &r.ReceivedAt, &r.ParserVersion, &r.Gap, &activityJSON) != nil {
+			return v, ErrUnavailable
+		}
+		if json.Unmarshal(activityJSON, &r.Activity) != nil {
 			return v, ErrUnavailable
 		}
 		v.Events = append(v.Events, r)

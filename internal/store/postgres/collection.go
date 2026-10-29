@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"noc-workbench/internal/collection"
+	activity "noc-workbench/internal/integrations/asteriskactivity"
 	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/transport/sshcli"
@@ -132,6 +133,11 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 		}
 		if _, e = tx.Exec(ctx, `INSERT INTO collector_result(run_id,collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, r.ID, c.CollectorID, c.Version, c.CommandID, c.Outcome, c.TransportOutcome, c.StartedAt, c.EndedAt, len(c.Observations), diag); e != nil {
 			return ErrUnavailable
+		}
+		if c.CollectorID == activity.Collector {
+			if err := persistActivity(ctx, tx, p, r, c); err != nil {
+				return err
+			}
 		}
 		if c.CollectorID == auth.Collector {
 			if err := persistAuth(ctx, tx, p, r, c); err != nil {

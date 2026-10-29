@@ -19,6 +19,7 @@ import (
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/health"
 	ast "noc-workbench/internal/integrations/asterisk"
+	activity "noc-workbench/internal/integrations/asteriskactivity"
 	ami "noc-workbench/internal/integrations/asteriskami"
 	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/inventory"
@@ -97,6 +98,10 @@ func (x *registrationWebExecutor) Execute(ctx context.Context, p workspace.Princ
 		return sshcli.Result{StartedAt: at, EndedAt: at, Stdout: raw}, nil
 	}
 	v := "Asterisk 18.26.4-vici built by synthetic on Linux\n"
+	if id == "asterisk.activity.v1" {
+		v += "NW_ACTIVITY_runtime\n" + strings.Repeat("a", 64) + "  -\nNW_ACTIVITY_channels\nSIP/phone-00000001!private-context!private-number!1!Up!private-app!private-data!private-caller!private-account!private-peer!3!12!bridge!1.1\nNW_ACTIVITY_bridges\nBridge-ID Chans Type Technology Duration\nbridge 1 basic simple_bridge 00:00:12\nNW_ACTIVITY_meetme\nroom-meetme!2!0!00:00:12!1!0\nNW_ACTIVITY_confbridge\nConference Bridge Name Users Marked Locked Muted\n================ ===== ====== ===== =====\nroom-confbridge 3 0 unlocked unmuted\nNW_ACTIVITY_runtime_end\n" + strings.Repeat("a", 64) + "  -\nNW_ACTIVITY_END\n"
+		return sshcli.Result{StartedAt: at, EndedAt: at, Stdout: []byte(v)}, nil
+	}
 	if x.denied {
 		v = "Unable to connect to remote asterisk (Permission denied)"
 	} else if id == "asterisk.registrations.v1" {
@@ -301,10 +306,37 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 	if page.Code != 200 || strings.Contains(page.Body.String(), "<td>phone100</td>") {
 		t.Fatal("filter ignored")
 	}
+	grant.Set("activity", "yes")
+	if response := request(h, "POST", connection, grant, cookie); response.Code != 303 {
+		t.Fatal("consolidated activity expansion", response.Code)
+	}
+	_, e = svc.Collect(collection.WithRequest(ctx, collection.Request{Source: "operator", Collectors: []string{activity.Collector}}), p, rec.Target())
+	must(e)
+	before = exec.calls.Load()
+	page = request(h, "GET", path, nil, cookie)
+	for _, label := range []string{"Verified current activity", "1 active channels", "1 active bridges", "SIP/phone-00000001", "room-meetme", "room-confbridge", "Uniqueid 1.1", "12 s at last observation", "account ownership unverified"} {
+		if page.Code != 200 || !strings.Contains(page.Body.String(), label) {
+			t.Fatal("activity UI", label, page.Code, page.Body.String())
+		}
+	}
+	if strings.Contains(page.Body.String(), "private-caller") || strings.Contains(page.Body.String(), "private-number") || strings.Contains(page.Body.String(), "private-data") {
+		t.Fatal("unnecessary call data exposed")
+	}
+	if script := os.Getenv("NOC_ACTIVITY_BROWSER"); script != "" {
+		t.Setenv("NOC_CONSOLE_BROWSER", script)
+		consoleBrowser(t, h, cookie, path)
+	}
+	page = request(h, "GET", path+"?channel=unmatched", nil, cookie)
+	if strings.Contains(page.Body.String(), "<td>SIP/phone-00000001") || exec.calls.Load() != before {
+		t.Fatal("activity search or passive safety")
+	}
 	must(sched.Control(ctx, p, scheduler.Control{Kind: "asset", ID: rec.AssetID, Paused: true}))
 	page = request(h, "GET", path, nil, cookie)
 	if page.Code != 200 || !strings.Contains(page.Body.String(), "Authentication monitoring unavailable") {
 		t.Fatal("pause coverage")
+	}
+	if strings.Contains(page.Body.String(), "Verified current activity") || !strings.Contains(page.Body.String(), "Current activity unverified") {
+		t.Fatal("paused activity current")
 	}
 
 }

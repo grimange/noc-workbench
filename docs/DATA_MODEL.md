@@ -168,3 +168,22 @@ idempotency key within a non-replayable live session. Receipt time, optional
 Asterisk time, gap state and drop count remain separate evidence. Recovery ends
 unfinished sessions with a gap; it does not refresh historical event timestamps.
 Migration 020 creates no enabled grants and preserves SSH history/auth cursors.
+
+
+NW-37 Stage D migration `021_asterisk_activity.sql` extends the existing collector,
+observation, optional-integration and AMI event constraints. The adapter-owned
+`asterisk_activity_state` projection uses the same composite scoped profile FK
+and stores a bounded normalized current/historical set, runtime identity,
+reconciliation generation, baseline interval, session identity and completeness.
+Existing observations retain CLI history; the existing session/sequence journal
+retains normalized lifecycle history. Only six allowlisted operational activity
+fields are added to AMI events; raw frames and caller/dialplan content are excluded.
+
+A per-profile transaction lock serializes projection changes and snapshot replay.
+Successful zero snapshots replace obsolete active entries without inventing
+hangups. Failed snapshots retain prior evidence with incomplete status. Current
+reads require matching customer/environment/asset/endpoint/profile/revision,
+current activity authority, fresh evidence and the same healthy AMI session.
+Database composite FKs reject cross-customer associations directly. Migration
+021 creates no grants, changes no schedules and preserves previous migrations,
+registration history, authentication cursors, credentials and AMI sessions.

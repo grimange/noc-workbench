@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	activity "noc-workbench/internal/integrations/asteriskactivity"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 const ParserVersion = "1"
 
 type Event struct {
+	Activity                                        activity.Event
 	Name, Technology, Endpoint, AOR, Address, State string
 	RTT                                             *float64
 	SourceAt                                        *time.Time
@@ -102,7 +104,13 @@ func Normalize(f Frame, received time.Time) (Event, bool) {
 		e.State = known(f.One("Status"), "Registered", "Unregistered", "Rejected", "Request Sent", "Auth. Sent", "Timeout", "No Authentication")
 		e.Address = address(f.One("Domain"))
 	default:
-		return Event{}, false
+		if !activity.IsEvent(e.Name) {
+			return Event{}, false
+		}
+		e.Activity = activity.Normalize(f.One)
+		if strings.HasPrefix(e.Name, "Meetme") {
+			e.Activity.Conference = activity.ID(f.One("Meetme"))
+		}
 	}
 	if v := f.One("Timestamp"); v != "" {
 		seconds, err := strconv.ParseFloat(v, 64)
@@ -114,6 +122,9 @@ func Normalize(f Frame, received time.Time) (Event, bool) {
 	return e, true
 }
 func ValidEvent(e Event) bool {
+	if !e.Activity.Valid() {
+		return false
+	}
 	if e.ReceivedAt.IsZero() || e.Sequence < 1 || e.Endpoint != cleanID(e.Endpoint) || e.AOR != cleanID(e.AOR) || e.Address != address(e.Address) {
 		return false
 	}

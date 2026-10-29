@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"noc-workbench/internal/collection"
+	activity "noc-workbench/internal/integrations/asteriskactivity"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 )
@@ -17,6 +18,7 @@ type Binding struct {
 	Target                    sshcli.Target
 	Ref, Digest               string
 	Enabled, Eligible, Paused bool
+	Activity                  bool
 }
 type Session struct {
 	ID, State, Reason                              string
@@ -260,7 +262,7 @@ func (s *Service) connection(ctx context.Context, b Binding, id string, c sshcli
 		handshake.Stop()
 		return err
 	}
-	d, err := Login(child, stream, c.Username, c.Secret)
+	d, err := Login(child, stream, c.Username, c.Secret, b.Activity)
 	handshake.Stop()
 	if err != nil {
 		return err
@@ -275,7 +277,7 @@ func (s *Service) connection(ctx context.Context, b Binding, id string, c sshcli
 		var seq int64
 		result <- Receive(child, stream, d, func(f Frame) {
 			e, ok := Normalize(f, time.Now().UTC())
-			if !ok {
+			if !ok || (!b.Activity && activity.IsEvent(e.Name)) {
 				return
 			}
 			seq++

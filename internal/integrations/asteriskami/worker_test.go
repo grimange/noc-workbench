@@ -281,3 +281,60 @@ func TestShutdownJoinsActiveStream(t *testing.T) {
 	}
 	c.Close()
 }
+func TestActivityAuthorityChangesSubscriptionAndDropsUnsolicitedEvents(t *testing.T) {
+	s, r, f, _ := workerFixture(t)
+	ticks := make(chan time.Time)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.run(ctx, ticks) }()
+	accept := func(expected string) net.Conn {
+		t.Helper()
+		<-r.snapshots
+		c := <-f.opens
+		io.WriteString(c, "Asterisk Call Manager/7.0.3\r\n")
+		frame, e := NewDecoder(c).Read()
+		if e != nil || frame.One("Events") != expected {
+			t.Fatal("subscription", frame, e)
+		}
+		io.WriteString(c, "Response: Success\r\nActionID: nw-login\r\n\r\n")
+		awaitTransition(t, r, "connected")
+		return c
+	}
+	c := accept("system")
+	// A subsequent persisted system frame is a deterministic processing barrier.
+	io.WriteString(c, "Event: Newchannel\r\nUniqueid: 1.1\r\nChannel: SIP/phone-00000001\r\n\r\nEvent: FullyBooted\r\n\r\n")
+	if e := <-r.events; e.Name != "FullyBooted" {
+		t.Fatal("unsolicited call data persisted", e)
+	}
+	r.mu.Lock()
+	r.binding.Activity = true
+	r.mu.Unlock()
+	ticks <- time.Now()
+	c.Close()
+	c = accept("system,call")
+	io.WriteString(c, "Event: Newchannel\r\nUniqueid: 1.1\r\nChannel: SIP/phone-00000001\r\n\r\n")
+	if e := <-r.events; e.Name != "Newchannel" {
+		t.Fatal(e)
+	}
+	r.mu.Lock()
+	r.binding.Activity = false
+	r.mu.Unlock()
+	ticks <- time.Now()
+	c.Close()
+	c = accept("system")
+	io.WriteString(c, "Event: Newstate\r\nUniqueid: 1.1\r\n\r\nEvent: FullyBooted\r\n\r\n")
+	if e := <-r.events; e.Name != "FullyBooted" {
+		t.Fatal("revoked call data persisted", e)
+	}
+	cancel()
+	c.Close()
+	if e := <-done; e != nil {
+		t.Fatal(e)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.begins != 3 {
+		t.Fatal("subscription change session ownership", r.begins)
+	}
+}

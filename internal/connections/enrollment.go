@@ -250,7 +250,7 @@ func (s *Service) Approve(ctx context.Context, p workspace.Principal, t sshcli.T
 
 // Act requires a posted optimistic revision. Network calls occur only in the
 // explicit inspect/verify actions, after persisted authorization is rechecked.
-func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id string, revision int64, action, fingerprint, evidence string) (Record, error) {
+func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id string, revision int64, action, fingerprint, evidence string) (out Record, retErr error) {
 	r, err := s.Repository.Enrollment(ctx, endpoint, id)
 	if err != nil {
 		return r, err
@@ -316,6 +316,14 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		return r, err
 	}
 	token := ""
+	retainGuard := false
+	defer func() {
+		if token != "" && !retainGuard {
+			if e := s.endSSH(ctx, r.ID, token); e != nil {
+				retErr = e
+			}
+		}
+	}()
 	switch action {
 	case "baseline":
 		if r.State != "connection_verified" || evidence != "baseline" {
@@ -369,6 +377,8 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		r.Details.CandidateFingerprint = candidate.Fingerprint
 		r.Details.InspectedAt = &now
 		if r.Details.ApprovedFingerprint != "" && r.Details.ApprovedFingerprint != candidate.Fingerprint {
+			s.quarantined.Store(r.ID, true)
+			retainGuard = true
 			clearTrust(&r)
 			r.State = "identity_changed"
 			r.Details.LastCategory = string(sshcli.ChangedKey)
@@ -411,6 +421,8 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 				r.Details.LastCategory = string(sshcli.Internal)
 			}
 			if r.Details.LastCategory == string(sshcli.ChangedKey) || r.Details.LastCategory == string(sshcli.UnknownKey) {
+				s.quarantined.Store(r.ID, true)
+				retainGuard = true
 				clearTrust(&r)
 				r.State = "identity_changed"
 			}
@@ -422,8 +434,8 @@ func (s *Service) Act(ctx context.Context, p workspace.Principal, endpoint, id s
 		return r, err
 	}
 	saved, err := s.Repository.SaveEnrollment(ctx, p, r, revision, action)
-	if err == nil && token != "" {
-		err = s.endSSH(ctx, r.ID, token)
+	if err == nil {
+		retainGuard = false
 	}
 	return saved, err
 }

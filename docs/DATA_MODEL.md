@@ -143,3 +143,17 @@ Three canonical API family freshness policies extend the existing immutable
 policy contract. Source evaluation selects those policies; asset evaluation
 excludes them. API observations do not authorize asset health rules or automatic
 alerts. Existing migration checksums 001–012 remain unchanged.
+
+
+NW-37 Stage B migration `019_asterisk_auth.sql` adds adapter-owned normalized
+`asterisk_auth_event`, `asterisk_auth_cursor` and `asterisk_auth_status` tables.
+Composite profile/customer/environment/asset/endpoint foreign keys preserve scope;
+events also reference the exact canonical run/profile revision. Per-source cursors
+use a CAS in the same transaction as event/status and observation persistence.
+Unique server/endpoint/source/device-inode/generation/byte-position/timestamp identities
+prevent duplicate committed event counts. Cursors survive reauthorization revisions without reingesting old content;
+Cursors contain no raw partial lines;
+only a boundary hash, offset, discard flag and coverage limitation. Event fields
+are allowlisted operational identities, timestamps, reason codes and addresses.
+Existing bounded sample retention applies to normalized events. No migration
+changes existing authority, schedules, trust, inventory or Asterisk configuration.

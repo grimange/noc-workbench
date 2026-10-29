@@ -4,6 +4,28 @@
 <p><strong>{{.Server.Asterisk.Status}}</strong></p>
 {{if .Server.Asterisk.AttemptAt.IsZero}}{{else}}<p>Last attempt: {{localTime .Server.Asterisk.AttemptAt}} · {{.Server.Asterisk.Outcome}}{{with .Server.Asterisk.Diagnostic}} · {{.}}{{end}}</p>{{end}}
 {{if not .Server.Asterisk.Authorized}}<p><a href="/servers/{{.Server.Detail.ID}}/connection">Authorize Standard Server Monitoring</a> for this verified connection. Remote Asterisk observation access is also required.</p>{{end}}
+{{with .Server.Asterisk.Auth}}
+<div class="authentication-monitoring" id="authentication-events">
+<h3>Authentication events</h3>
+{{if .Current}}<p><strong>Current collection</strong> · inspected {{localTime .CheckedAt}}</p>
+<p>{{if .Gap}}Observed counts with incomplete historical coverage: {{end}}{{.Failures5}} failures in last 5 minutes · {{.FailuresHour}} in last hour · {{.Sources}} distinct observed source IPs in last hour</p>
+{{else}}<p><strong>Authentication monitoring unavailable</strong> · {{.CoverageReason}}</p><p>Retained events: {{.Failures5}} in last 5 minutes · {{.FailuresHour}} in last hour. Counts do not establish complete current coverage.</p>{{end}}
+{{if not .Latest.IsZero}}<p>Most recent supported failure: {{localTime .Latest}}</p>{{end}}
+{{if .Gap}}<p>Coverage gap: initial synchronization, rotation, truncation or an oversized line skipped some evidence. Retained event counts cover observed content only.</p>{{end}}
+<form method="get" action="/servers/{{$.Server.Detail.ID}}#authentication-events">
+<label>Window <select name="auth_window"><option value="5" {{if eq .Filter.Minutes 5}}selected{{end}}>5 minutes</option><option value="15" {{if eq .Filter.Minutes 15}}selected{{end}}>15 minutes</option><option value="60" {{if eq .Filter.Minutes 60}}selected{{end}}>1 hour</option></select></label>
+<label>Failure <select name="auth_type"><option value="">All supported failures</option>{{range $kind := (authTypes)}}<option value="{{$kind}}" {{if eq $.Server.Asterisk.Auth.Filter.Type $kind}}selected{{end}}>{{$kind}}</option>{{end}}</select></label>
+<label>Account <input name="auth_account" maxlength="128" value="{{.Filter.Account}}"></label><label>Observed source IP <input name="auth_ip" maxlength="64" value="{{.Filter.IP}}"></label><button type="submit">Filter events</button>
+</form>
+<div class="table-scroll"><table><thead><tr><th>Time (PHT)</th><th>Account</th><th>Failure</th><th>Observed source IP</th><th>Count</th></tr></thead><tbody>
+{{range .Groups}}<tr><td>{{localTime .Last}}<details><summary>Event times</summary>First: {{localTime .First}}<br>Last: {{localTime .Last}}<br>First UTC: {{utcTime .First}}<br>Last UTC: {{utcTime .Last}}</details></td><td>{{with .Account}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Type}}</td><td>{{with .IP}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Count}}{{if .Repeated}} · Repeated failures (≥5 in 5 minutes){{end}}</td></tr>{{else}}<tr><td colspan="5">No supported failures in the selected observed window. Consult source coverage above.</td></tr>{{end}}
+</tbody></table></div>
+<details><summary>Individual normalized events (latest 50 in filtered window)</summary><div class="table-scroll"><table><thead><tr><th>Time</th><th>Account</th><th>Failure / reason</th><th>Observed source IP / port</th><th>Technical provenance</th></tr></thead><tbody>{{range .Events}}<tr><td>{{localTime .At}}<br>{{utcTime .At}}</td><td>{{with .Account}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Type}} · {{.Reason}}</td><td>{{with .IP}}{{.}}{{else}}Unknown{{end}} · port {{if .Port}}{{.Port}}{{else}}Unknown{{end}}</td><td>{{.Technology}} · {{.Source}} · {{.Identity}} generation {{.Generation}} byte {{.Position}} · parser {{.ParserVersion}} · ingested {{utcTime .IngestedAt}}</td></tr>{{else}}<tr><td colspan="5">No normalized events in this filtered window.</td></tr>{{end}}</tbody></table></div></details>
+{{if .Limited}}<p>First 100 groups shown. Refine filters; summary totals include all retained events in the window.</p>{{end}}
+<p class="muted">Observed source IP may identify a proxy, SBC or NAT device. Repeated failures are an operational signal, not proof of an attack or compromise. Unknown identities are kept separate. Registration snapshots do not capture every authentication attempt.</p>
+<details><summary>Technical authentication coverage</summary><p>Status {{.Status}} · source {{.Source}} · dedicated security category {{.Security}} · rejected lines {{.Rejected}} · parser v1</p><p>Inspected UTC {{utcTime .CheckedAt}}. Current means a successful complete inspection within 180 seconds. Backlog, incomplete lines and unsupported formats are not complete coverage. Yearless warning timestamps are unsupported; dedicated security event timestamps retain UTC precision.</p>{{range $source,$cursor := .Cursors}}<p>{{$source}} · identity {{$cursor.Identity}} · generation {{$cursor.Generation}} · byte offset {{$cursor.Offset}} · gap {{$cursor.Gap}}</p>{{end}}</details>
+</div>
+{{end}}
 <p class="muted">Snapshot counts describe observed objects. Contact presence, registration validity and reachability are separate signals; polling does not record every registration attempt.</p>
 {{range .Server.Asterisk.Families}}
 <details {{if .Snapshot.Count}}open{{end}}><summary>{{.Name}} — {{.State}}{{if eq .Snapshot.Status "supported"}} · {{.Snapshot.Count}} observed{{end}}</summary>

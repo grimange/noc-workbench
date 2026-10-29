@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"strings"
 	"testing"
@@ -232,6 +233,16 @@ func TestIntegrationDurableTrustGuard(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, e := db.BeginSSH(cancelled, p, target); e == nil {
+		t.Fatal("cancelled acquisition accepted")
+	}
+	var n int
+	must(db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard`).Scan(&n))
+	if n != 0 {
+		t.Fatal("cancelled acquisition stranded guard")
+	}
 	token, e := db.BeginSSH(ctx, p, target)
 	must(e)
 	if token == "" {
@@ -393,7 +404,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 18 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 19 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {
@@ -483,3 +494,41 @@ func TestIntegrationNW036BaselineUpgrade(t *testing.T) { testUpgrade(t, "016", 1
 func TestIntegrationNW037RegistrationUpgrade(t *testing.T) { testUpgrade(t, "017", 16) }
 
 func TestIntegrationStandardMonitoringUpgrade(t *testing.T) { testUpgrade(t, "018", 17) }
+
+func TestIntegrationNW037AuthUpgrade(t *testing.T) { testUpgrade(t, "019", 18) }
+
+// Cancel at the exact point RETURNING has delivered its row, before commit.
+// No clocks or sleeps are involved; the old autocommit path leaves a guard here.
+type cancelGuardTracer struct{ cancel context.CancelFunc }
+
+func (c cancelGuardTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, d pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, guardTraceKey{}, strings.HasPrefix(d.SQL, "INSERT INTO ssh_execution_guard"))
+}
+
+type guardTraceKey struct{}
+
+func (c cancelGuardTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
+	if yes, _ := ctx.Value(guardTraceKey{}).(bool); yes {
+		c.cancel()
+	}
+}
+func TestIntegrationGuardCancelledReturning(t *testing.T) {
+	db, _, target := collectionFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := db.pool.Config()
+	cfg.ConnConfig.Tracer = cancelGuardTracer{cancel: cancel}
+	pool, e := pgxpool.NewWithConfig(context.Background(), cfg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer pool.Close()
+	acquisition := &Store{pool: pool}
+	if token, e := acquisition.BeginSSH(ctx, workspace.Principal{ID: workspace.OperatorID}, target); e == nil || token != "" {
+		t.Fatal("cancellation at RETURNING accepted")
+	}
+	var n int
+	if e := db.pool.QueryRow(context.Background(), `SELECT count(*) FROM ssh_execution_guard`).Scan(&n); e != nil || n != 0 {
+		t.Fatalf("unacknowledged insert survived cancellation: %d %v", n, e)
+	}
+}

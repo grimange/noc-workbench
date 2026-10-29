@@ -96,6 +96,8 @@ type command struct {
 // Registry entries are source-controlled static shell text. No caller can add
 // commands or interpolate remote values. Optional sources have explicit framing.
 var registry = map[string]command{
+	"asterisk.auth.v1":                 {"/usr/bin/timeout -k 1 4 /usr/bin/python3 -I -c '" + strings.ReplaceAll(asteriskAuthReader, "'", "'\"'\"'") + "'", 5 * time.Second, 64 * 1024},
+	"asterisk.auth.helper.v1":          {"/usr/bin/sudo -n -u asterisk -- /usr/local/sbin/noc-asterisk-auth-read", 5 * time.Second, 64 * 1024},
 	"asterisk.identity.helper.v1":      {"/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe identity", 5 * time.Second, 64 * 1024},
 	"asterisk.registrations.helper.v1": {"/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe registrations", 5 * time.Second, 64 * 1024},
 	"asterisk.registrations.v1":        {"export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; if ! command -v asterisk >/dev/null 2>&1; then printf 'NW_ASTERISK_NOT_INSTALLED\\n'; else asterisk -rx 'core show version' 2>&1; printf '\\nNW_REGISTRATIONS_sip_peers\\n'; asterisk -rx 'sip show peers' 2>&1; printf '\\nNW_REGISTRATIONS_sip_registry\\n'; asterisk -rx 'sip show registry' 2>&1; printf '\\nNW_REGISTRATIONS_pjsip_endpoints\\n'; asterisk -rx 'pjsip show endpoints' 2>&1; printf '\\nNW_REGISTRATIONS_pjsip_contacts\\n'; asterisk -rx 'pjsip show contacts' 2>&1; printf '\\nNW_REGISTRATIONS_pjsip_registrations\\n'; asterisk -rx 'pjsip show registrations' 2>&1; printf '\\nNW_REGISTRATIONS_END\\n'; fi", 5 * time.Second, 64 * 1024},
@@ -344,6 +346,21 @@ func (e *Executor) Execute(ctx context.Context, actor workspace.Principal, t Tar
 		return r, fail(Internal)
 	}
 	args := []string{"-F", "/dev/null", "-T", "-n", "-oBatchMode=yes", "-oStrictHostKeyChecking=yes", "-oRequestTTY=no", "-oForwardAgent=no", "-oForwardX11=no", "-oForwardX11Trusted=no", "-oTunnel=no", "-oAddKeysToAgent=no", "-oEnableSSHKeysign=no", "-oEscapeChar=none", "-oClearAllForwardings=yes", "-oExitOnForwardFailure=yes", "-oControlMaster=no", "-oControlPath=none", "-oControlPersist=no", "-oProxyCommand=none", "-oProxyJump=none", "-oPermitLocalCommand=no", "-oLocalCommand=none", "-oKnownHostsCommand=none", "-oCanonicalizeHostname=no", "-oVerifyHostKeyDNS=no", "-oUpdateHostKeys=no", "-oGlobalKnownHostsFile=/dev/null", "-oUserKnownHostsFile=" + known, "-oHostKeyAlias=" + alias, "-oIdentityAgent=none", "-oIdentitiesOnly=yes", "-oPasswordAuthentication=no", "-oKbdInteractiveAuthentication=no", "-oPreferredAuthentications=publickey", "-oConnectionAttempts=1", "-oConnectTimeout=" + strconv.Itoa(int((e.limits.ConnectTimeout+time.Second-1)/time.Second)), "-oServerAliveInterval=2", "-oServerAliveCountMax=1", "-i", identity, "-p", strconv.Itoa(int(p.Port)), "-l", p.User, "--", p.Address, spec.text}
-	r.Stdout, r.Stderr, r.ExitCode, err = run(ctx, e.executable, args, min(spec.limit, e.limits.OutputBytes))
+	var input []byte
+	if commandID == "asterisk.auth.v1" || commandID == "asterisk.auth.helper.v1" {
+		input, _ = ctx.Value(authCursorKey{}).([]byte)
+		if len(input) == 0 || len(input) > 8192 {
+			return r, fail(Unsupported)
+		}
+		// Only this fixed protocol accepts stdin; no terminal or interactive shell.
+		args = append(args[:0:0], args...)
+		for i, arg := range args {
+			if arg == "-n" {
+				args = append(args[:i], args[i+1:]...)
+				break
+			}
+		}
+	}
+	r.Stdout, r.Stderr, r.ExitCode, err = runInput(ctx, e.executable, args, min(spec.limit, e.limits.OutputBytes), input)
 	return r, err
 }

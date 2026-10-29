@@ -20,7 +20,7 @@ type Executor struct {
 }
 
 func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.Target, id string) (sshcli.Result, error) {
-	if strings.HasPrefix(id, "asterisk.") {
+	if strings.HasPrefix(id, "asterisk.") && id != "asterisk.auth.v1" && id != "asterisk.auth.helper.v1" {
 		deny := func() (sshcli.Result, error) {
 			now := time.Now().UTC()
 			return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}

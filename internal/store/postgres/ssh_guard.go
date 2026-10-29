@@ -5,15 +5,39 @@ import (
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
+	"time"
 )
 
 func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Target) (string, error) {
 	if p.ID != workspace.OperatorID {
 		return "", workspace.ErrDenied
 	}
-	var token string
-	e := s.pool.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) SELECT id,$1,revision FROM connection_profile WHERE id=$2 AND endpoint_id=$3 AND asset_id=$4 AND revision=$5 AND state IN ('connection_verified','pending_host_key_verification') RETURNING token::text`, p.ID, t.ProfileID, t.EndpointID, t.AssetID, t.ProfileVersion).Scan(&token)
+	// A failed RETURNING must not autocommit an unacknowledged guard. The
+	// remote deadline controls acquisition; persistence has its own bounded budget.
+	if ctx.Err() != nil {
+		return "", connections.ErrState
+	}
+	tx, e := s.pool.Begin(ctx)
 	if e != nil {
+		return "", connections.ErrState
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	var token string
+	e = tx.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) SELECT id,$1,revision FROM connection_profile WHERE id=$2 AND endpoint_id=$3 AND asset_id=$4 AND revision=$5 AND state IN ('connection_verified','pending_host_key_verification') RETURNING token::text`, p.ID, t.ProfileID, t.EndpointID, t.AssetID, t.ProfileVersion).Scan(&token)
+	if e != nil {
+		return "", connections.ErrState
+	}
+	if ctx.Err() != nil {
+		return "", connections.ErrState
+	}
+	save, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	if tx.Commit(save) != nil {
+		// An uncertain commit remains fail-closed for explicit recovery.
 		return "", connections.ErrState
 	}
 	return token, nil

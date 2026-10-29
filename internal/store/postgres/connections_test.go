@@ -211,6 +211,35 @@ func TestIntegrationRealSSHEnrollment(t *testing.T) {
 	must(e)
 	r, e = db.SaveEnrollment(ctx, actor, r, r.Revision, "approve")
 	must(e)
+	// Unsaved host-key invalidation must retain both durable and process guards.
+	_, e = db.pool.Exec(ctx, `CREATE FUNCTION fail_enrollment_trust() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic trust persistence failure'; END $$; CREATE TRIGGER fail_enrollment_trust BEFORE UPDATE ON connection_profile FOR EACH ROW EXECUTE FUNCTION fail_enrollment_trust()`)
+	must(e)
+	if _, e := svc.Act(ctx, actor, r.EndpointID, r.ID, r.Revision, "verify", "", ""); e == nil {
+		t.Fatal("failed trust persistence accepted")
+	}
+	var guards int
+	must(db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard WHERE profile_id=$1`, r.ID).Scan(&guards))
+	if guards != 1 {
+		t.Fatal("unsaved identity change lost durable guard")
+	}
+	if _, e := svc.Approve(ctx, actor, r.Target(), sshcli.ExecutePermission); e == nil {
+		t.Fatal("unsaved identity change lost process quarantine")
+	}
+	_, e = db.pool.Exec(ctx, `DROP TRIGGER fail_enrollment_trust ON connection_profile`)
+	must(e)
+	act("review", "", "")
+	must(db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard WHERE profile_id=$1`, r.ID).Scan(&guards))
+	if guards != 0 {
+		t.Fatal("explicit saved review did not recover matched guard")
+	}
+	act("authorize", "", "authorized")
+	act("inspect", "", "")
+	act("approve", lab.Fingerprint, "Synthetic independent server console")
+	r.Details.ApprovedKey = fields[0] + " " + fields[1]
+	r.Details.ApprovedFingerprint, e = sshcli.Fingerprint(r.Details.ApprovedKey)
+	must(e)
+	r, e = db.SaveEnrollment(ctx, actor, r, r.Revision, "approve")
+	must(e)
 	act("verify", "", "")
 	if r.State != "identity_changed" || r.Details.LastCategory != string(sshcli.ChangedKey) {
 		t.Fatal("changed key", r.State, r.Details.LastCategory)
@@ -253,7 +282,7 @@ func TestIntegrationRealSSHEnrollment(t *testing.T) {
 		t.Fatal("failed inspection evidence missing", r.Details.LastCategory)
 	}
 	var inspectionAudits int
-	must(db.pool.QueryRow(ctx, `SELECT count(*) FROM connection_audit WHERE profile_id=$1 AND operation='inspect' AND category<>''`, r.ID).Scan(&inspectionAudits))
+	must(db.pool.QueryRow(ctx, `SELECT count(*) FROM connection_audit WHERE profile_id=$1 AND operation='inspect' AND category<>'' AND revision=$2`, r.ID, r.Revision).Scan(&inspectionAudits))
 	if inspectionAudits != 1 {
 		t.Fatal("failed inspection audit missing")
 	}
@@ -315,6 +344,13 @@ func TestIntegrationEnrollmentInFlightChanges(t *testing.T) {
 		r, e = svc.Act(ctx, actor, r.EndpointID, r.ID, r.Revision, action, fp, evidence)
 		must(e)
 	}
+	assertNoGuard := func() {
+		t.Helper()
+		var n int
+		if e := db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard WHERE profile_id=$1`, r.ID).Scan(&n); e != nil || n != 0 {
+			t.Fatalf("completed operation stranded guard: %d %v", n, e)
+		}
+	}
 	act("submit", "", "")
 	act("authorize", "", "authorized")
 	hook.before = func() { ep.Port++; ep, e = db.SaveEndpoint(ctx, ep); must(e) }
@@ -322,6 +358,7 @@ func TestIntegrationEnrollmentInFlightChanges(t *testing.T) {
 	if !errors.Is(e, connections.ErrConflict) {
 		t.Fatal("endpoint changed during inspection", e)
 	}
+	assertNoGuard()
 	ep.Port--
 	ep, e = db.SaveEndpoint(ctx, ep)
 	must(e)
@@ -344,6 +381,7 @@ func TestIntegrationEnrollmentInFlightChanges(t *testing.T) {
 	if !errors.Is(e, connections.ErrConflict) {
 		t.Fatal("stale verification persisted", e)
 	}
+	assertNoGuard()
 	r, e = db.Enrollment(ctx, ep.ID, r.ID)
 	must(e)
 	if r.State == "connection_verified" {
@@ -353,12 +391,21 @@ func TestIntegrationEnrollmentInFlightChanges(t *testing.T) {
 	act("authorize", "", "authorized")
 	act("inspect", "", "")
 	act("approve", lab.Fingerprint, "Synthetic independent server console")
+	// Cancellation after remote completion must release the acknowledged token,
+	// even when the enrollment write cannot use the canceled request context.
+	canceled, cancel := context.WithCancel(ctx)
+	hook.before = cancel
+	if _, e := svc.Act(canceled, actor, r.EndpointID, r.ID, r.Revision, "verify", "", ""); e == nil {
+		t.Fatal("canceled save accepted")
+	}
+	assertNoGuard()
 	// Archival competes with completion. No verified success may be committed.
 	hook.before = func() { a.Lifecycle = "archived"; _, e = db.SaveAsset(ctx, a); must(e) }
 	_, e = svc.Act(ctx, actor, r.EndpointID, r.ID, r.Revision, "verify", "", "")
 	if !errors.Is(e, connections.ErrConflict) {
 		t.Fatal("archive race", e)
 	}
+	assertNoGuard()
 	t.Log("PASS endpoint changes during inspection/verification and archival before completion reject stale results")
 }
 

@@ -13,12 +13,13 @@ import (
 )
 
 type enrollmentData struct {
-	Asset      inventory.Asset
-	Endpoints  []inventory.Endpoint
-	Records    []connections.Record
-	References []string
-	Standard   map[string]bool
-	Helper     map[string]bool
+	Asset            inventory.Asset
+	Endpoints        []inventory.Endpoint
+	Records          []connections.Record
+	References       []string
+	Standard         map[string]bool
+	Helper           map[string]bool
+	Auth, AuthHelper map[string]bool
 }
 
 func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +78,13 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 				if !yes || revision != existing.Revision || r.PostForm.Get("evidence") != "standard" {
 					err = connections.ErrInput
 				} else {
-					err = grant.SetStandardMonitoring(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes")
+					if expanded, ok := s.store.(interface {
+						SetStandardMonitoringWithAuth(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, bool, bool, bool) error
+					}); ok {
+						err = expanded.SetStandardMonitoringWithAuth(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes", r.PostForm.Get("auth_logs") == "yes", r.PostForm.Get("auth_helper") == "yes")
+					} else {
+						err = grant.SetStandardMonitoring(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes")
+					}
 				}
 			} else {
 				_, err = svc.Act(r.Context(), operatorPrincipal(), existing.EndpointID, existing.ID, revision, action, r.PostForm.Get("fingerprint"), r.PostForm.Get("evidence"))
@@ -118,6 +125,8 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	d.Enrollment.Standard = map[string]bool{}
 	d.Enrollment.Helper = map[string]bool{}
+	d.Enrollment.Auth = map[string]bool{}
+	d.Enrollment.AuthHelper = map[string]bool{}
 	if grant, yes := s.store.(interface {
 		StandardMonitoringAllowed(context.Context, workspace.Principal, sshcli.Target) error
 		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
@@ -125,6 +134,8 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 		for _, rec := range d.Enrollment.Records {
 			d.Enrollment.Standard[rec.ID] = grant.StandardMonitoringAllowed(r.Context(), operatorPrincipal(), rec.Target()) == nil
 			d.Enrollment.Helper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_helper") == nil
+			d.Enrollment.Auth[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_auth") == nil
+			d.Enrollment.AuthHelper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_auth_helper") == nil
 		}
 	}
 	if r.URL.Query().Get("saved") == "1" {

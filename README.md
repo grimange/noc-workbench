@@ -567,7 +567,7 @@ the existing versioned policy evaluator (default TTL 180 seconds). Failed attemp
 preserve prior observations and original timestamps. Disabled, paused, blocked,
 untrusted or stale evidence has Unknown current runtime state; its last observed
 state remains available. Dashboard and Server Details present current runtime monitoring before historical installation discovery;
-NW-37 Stage A adds optional registration snapshots; authentication events, AMI, conferences and RTP diagnostics remain deferred.
+NW-37 Stage A adds optional registration snapshots; Stage B adds optional normalized authentication events; AMI, conferences and RTP diagnostics remain deferred.
 
 
 ### Monitoring console (NW-36 Slice C)
@@ -655,3 +655,70 @@ rechecked at transport execution. The gateway cannot run the older channel/modul
 commands. Migration 018 preserves existing grants and observation checks while
 adding only the two matching gateway provenance pairs and the consolidated grant
 audit operation. It grants no new authority during startup.
+
+
+### Authentication events (NW-37 Stage B)
+
+Server Details → Services → Asterisk monitoring includes authentication failures,
+5/15/60-minute filters and account/observed-IP/event-type groups. Five supported
+failures within five minutes mark a repeated-failure signal, not an attack verdict.
+Unknown identities are kept separate. Observed source IP can identify a proxy,
+SBC or NAT device. Technical details retain UTC while routine times use PHT.
+
+Enable **Asterisk authentication logs** in the existing Standard Server Monitoring
+form. This explicitly expands a previously snapshot-only grant and adds the
+optional collector to the existing schedule without clearing any pauses. Existing
+installations gain no log-reading authority on upgrade. Direct reads use the
+approved SSH account; a separate disclosed log-reader option selects the optional
+administrator-installed `scripts/asterisk-auth-read` gateway. The Stage A helper
+grant does not authorize log access. Neither option changes logger configuration,
+permissions, Asterisk state or call control. Python 3 and timeout are required on
+the observed host. No daemon, cron job or background remote process is installed.
+
+The fixed reader inspects only `/etc/asterisk/logger.conf` and configured regular
+files named `security`, `security_log`, `messages` or `full` beneath
+`/var/log/asterisk`. It prefers configured security-category files, then configured
+notice/warning messages/full files. Arbitrary configured paths, includes and
+symlinks are not followed; incomplete configuration is reported. Custom destinations
+need a reviewed fixed-source extension. Readability and availability are separate
+from a successful empty inspection. Live compatibility requires actual source
+inspection; synthetic fixtures do not establish lab compatibility.
+
+Supported security EventVersion 1 failures are InvalidPassword, InvalidAccountID
+and ChallengeResponseFailed; ChallengeSent and SuccessfulAuth are excluded.
+RequestBadFormat is recognized as a malformed-request security event and excluded
+from authentication-failure counts; it does not establish a password failure.
+Security EventTV epoch-microsecond/RFC3339 timestamps are supported. Explicit
+chan_sip registration warnings retain the requested account URI and distinguish
+Wrong password, Username/auth name mismatch and No matching peer found. Explicit
+PJSIP failed-request warnings distinguish Failed to authenticate and No matching
+endpoint found; From headers are not promoted into account identity. Warning
+formats require year-bearing timestamps and an observed numeric timezone;
+yearless warning destinations are unsupported, including empty windows. Parsers follow the
+[Asterisk security event schema](https://docs.asterisk.org/Latest_API/API_Documentation/AMI_Events/InvalidPassword/)
+and [Asterisk 18 chan_sip failure paths](https://github.com/asterisk/asterisk/blob/18/channels/chan_sip.c).
+
+Each dispatch reads at most two 24-KiB chunks within existing SSH deadlines and
+64-KiB output bounds. First synchronization uses a bounded tail; skipped history
+is a coverage gap. Durable enrollment/source cursors retain device/inode,
+generation, offset and a SHA-256 boundary anchor. Retained uncompressed .1/.0
+rotation is drained; missing rotation and copy-truncation produce explicit gaps.
+Unfinished lines are reread without storing raw fragments. Oversized lines and an
+unfinished rotated EOF are discarded with an explicit gap so collection can
+progress. Backlog continues on subsequent existing scheduler ticks.
+
+Migration 019 commits normalized events, cursor CAS and source status atomically
+with canonical observations. Event identity includes server/endpoint, source,
+file identity, generation, byte position and event timestamp. Restart reopens the
+committed cursor; uncommitted work can be replayed. Normalized event retention uses the existing
+sample-retention setting and bounded maintenance. No raw lines, SIP headers,
+digests, challenge responses or unrelated calls are retained. SQL window totals
+cover all retained events, while the displayed group list is bounded at 100.
+
+Current coverage requires a successful inspection within 180 seconds. Source
+errors, failed transport, pause/revocation, incomplete lines, unsupported formats,
+backlog never establish a current zero-failure result. Successful caught-up reads
+after a gap show current collection with explicit incomplete historical coverage;
+their observed counts cannot establish a complete zero-failure result. Known gap history
+remains explicit for that enrollment/source across revisions. Passive GET and SSE only read persisted
+data. No AMI transport, account blocking or remote security action is included.

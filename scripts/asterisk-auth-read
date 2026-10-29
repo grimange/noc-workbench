@@ -1,0 +1,5 @@
+#!/bin/sh
+# Optional administrator-installed fixed-source reader. No shell/API arguments.
+set -eu
+[ "$#" -eq 0 ] || exit 64
+exec /usr/bin/timeout -k 1 4 /usr/bin/python3 -I /usr/local/libexec/noc-asterisk-auth-reader.py

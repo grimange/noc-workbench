@@ -24,7 +24,9 @@ import (
 
 //go:embed templates/*.html static/*
 var assets embed.FS
-var pages = template.Must(template.New("").Funcs(template.FuncMap{"bytesText": bytesText, "localTime": localTime, "utcTime": utcTime}).ParseFS(assets, "templates/*.html"))
+var pages = template.Must(template.New("").Funcs(template.FuncMap{"bytesText": bytesText, "localTime": localTime, "utcTime": utcTime, "authTypes": func() []string {
+	return []string{"InvalidPassword", "InvalidAccountID", "ChallengeResponseFailed", "SIPRegistrationRejected", "PJSIPAuthenticationRejected"}
+}}).ParseFS(assets, "templates/*.html"))
 
 func localTime(t time.Time) string {
 	if t.IsZero() {

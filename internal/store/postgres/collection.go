@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"noc-workbench/internal/collection"
+	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
@@ -131,6 +132,11 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 		}
 		if _, e = tx.Exec(ctx, `INSERT INTO collector_result(run_id,collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, r.ID, c.CollectorID, c.Version, c.CommandID, c.Outcome, c.TransportOutcome, c.StartedAt, c.EndedAt, len(c.Observations), diag); e != nil {
 			return ErrUnavailable
+		}
+		if c.CollectorID == auth.Collector {
+			if err := persistAuth(ctx, tx, p, r, c); err != nil {
+				return err
+			}
 		}
 		for _, o := range c.Observations {
 			if o.AssetID != r.Target.AssetID || o.EndpointID != r.Target.EndpointID || o.ProfileID != r.Target.ProfileID || o.ProfileVersion != r.Target.ProfileVersion || o.CollectorID != c.CollectorID || o.CollectorVersion != c.Version || o.CommandID != c.CommandID || o.SubjectType != "asset" {
@@ -268,6 +274,10 @@ func (s *Store) MaintainCollections(ctx context.Context, now time.Time, runDays,
 		return ErrUnavailable
 	}
 	defer tx.Rollback(context.Background())
+	_, e = tx.Exec(ctx, `DELETE FROM asterisk_auth_event WHERE id IN (SELECT id FROM asterisk_auth_event WHERE ingested_at<$1 ORDER BY ingested_at LIMIT 2000)`, now.AddDate(0, 0, -sampleDays))
+	if e != nil {
+		return ErrUnavailable
+	}
 	_, e = tx.Exec(ctx, `DELETE FROM observation WHERE id IN(SELECT o.id FROM observation o WHERE observed_at<$1 AND EXISTS(SELECT 1 FROM observation n WHERE ((n.asset_id=o.asset_id AND o.source_id IS NULL) OR (n.source_id=o.source_id AND o.asset_id IS NULL)) AND n.key=o.key AND n.resource_hash=o.resource_hash AND n.resource=o.resource AND (n.observed_at,n.id)>(o.observed_at,o.id)) ORDER BY observed_at LIMIT 2000)`, now.AddDate(0, 0, -sampleDays))
 	if e != nil {
 		return ErrUnavailable

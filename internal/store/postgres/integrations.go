@@ -59,7 +59,7 @@ func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h col
 }
 
 func monitoringIntegration(name string) bool {
-	return name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
+	return name == "asterisk_auth" || name == "asterisk_auth_helper" || name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
 }
 
 // StandardMonitoringAllowed is a projection of the existing four scoped grants,
@@ -78,6 +78,18 @@ func (s *Store) StandardMonitoringAllowed(ctx context.Context, p workspace.Princ
 // The optional helper is separately disclosed execution scope, never inferred
 // from a failed CLI command or silently granted to existing enrollments.
 func (s *Store) SetStandardMonitoring(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper bool) error {
+	return s.setStandardMonitoring(ctx, p, h, t, helper, nil)
+}
+
+// SetStandardMonitoringWithAuth discloses fixed log discovery/reads in the same
+// consolidated action. Prior narrow helper grants never gain log privileges.
+func (s *Store) SetStandardMonitoringWithAuth(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper, auth, authHelper bool) error {
+	if authHelper && !auth {
+		return workspace.ErrDenied
+	}
+	return s.setStandardMonitoring(ctx, p, h, t, helper, []bool{auth, authHelper})
+}
+func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper bool, auth []bool) error {
 	if collectionAccess(p, h) != nil || h.AssetID != t.AssetID {
 		return workspace.ErrDenied
 	}
@@ -123,6 +135,21 @@ func (s *Store) SetStandardMonitoring(ctx context.Context, p workspace.Principal
 			return e
 		}
 	}
+	if len(auth) == 2 {
+		for i, name := range []string{"asterisk_auth", "asterisk_auth_helper"} {
+			if e = grantMonitoring(ctx, tx, p, r, name, auth[i]); e != nil {
+				return e
+			}
+		}
+		if auth[0] {
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'asterisk.auth'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('asterisk.auth'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
+		} else {
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.auth'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.auth'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+		}
+		if e != nil {
+			return ErrUnavailable
+		}
+	}
 	_, e = tx.Exec(ctx, `INSERT INTO connection_audit(profile_id,principal_id,revision,operation,state,category) VALUES($1,$2,$3,'standard',$4,$5)`, r.ID, p.ID, r.Revision, r.State, map[bool]string{true: "standard_helper", false: "standard_local_cli"}[helper])
 	if e != nil {
 		return ErrUnavailable
@@ -139,6 +166,11 @@ func grantMonitoring(ctx context.Context, tx pgx.Tx, p workspace.Principal, r co
 }
 func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {
+		if id == "asterisk.auth" {
+			if err := integrationAllowed(ctx, q, p, t, "asterisk_auth"); err != nil {
+				return err
+			}
+		}
 		if strings.HasPrefix(id, "asterisk.") {
 			if err := integrationAllowed(ctx, q, p, t, "asterisk"); err != nil {
 				return err
@@ -167,6 +199,9 @@ func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Prin
 // enrollment revision. Manual inspection establishes capabilities first.
 func (s *Store) integrationCapabilities(ctx context.Context, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {
+		if id == "asterisk.auth" {
+			continue
+		} // Source unavailability must remain observable on its schedule.
 		if !strings.HasPrefix(id, "asterisk.") {
 			continue
 		}

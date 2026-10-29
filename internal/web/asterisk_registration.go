@@ -12,6 +12,7 @@ import (
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/health"
 	ast "noc-workbench/internal/integrations/asterisk"
+	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
@@ -30,6 +31,7 @@ type asteriskRegistrationData struct {
 	Status, Outcome, Diagnostic      string
 	AttemptAt                        time.Time
 	Families                         []registrationFamily
+	Auth                             auth.View
 }
 
 func registrationView(in health.Input, out health.Evaluation, profile scheduler.Profile, allowed, paused bool, history []collection.Evidence) asteriskRegistrationData {
@@ -159,7 +161,27 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 			in.RecentAttempts = append(in.RecentAttempts, *attempt)
 		}
 	}
-	return registrationView(in, out, rt.Profile, allowed, rt.Paused, history), nil
+	d := registrationView(in, out, rt.Profile, allowed, rt.Paused, history)
+	d.Auth = auth.View{Status: "not_authorized"}
+	if repo, ok := s.store.(interface {
+		AuthEvents(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, auth.Filter, time.Time) (auth.View, error)
+	}); ok && rt.Profile.Target.ProfileID != "" {
+		minutes, _ := strconv.Atoi(r.URL.Query().Get("auth_window"))
+		filter := auth.Filter{Type: r.URL.Query().Get("auth_type"), Account: r.URL.Query().Get("auth_account"), IP: r.URL.Query().Get("auth_ip"), Minutes: minutes}
+		if len(filter.Type) > 64 || len(filter.Account) > 128 || len(filter.IP) > 64 {
+			return d, workspace.ErrDenied
+		}
+		var err error
+		d.Auth, err = repo.AuthEvents(r.Context(), operatorPrincipal(), in.Scope, rt.Profile.Target, filter, time.Now().UTC())
+		if err != nil {
+			return d, err
+		}
+		if !in.Active || !in.Trusted || !(rt.Profile.Eligible || rt.Profile.EvidenceEligible) || rt.Paused || !rt.Profile.Enabled || !rt.Profile.Authorized || !slices.Contains(rt.Profile.Collectors, auth.Collector) {
+			d.Auth.Current = false
+			d.Auth.Status = "not_scheduled_or_paused"
+		}
+	}
+	return d, nil
 }
 
 // Authorization is an explicit POST for the verified revision. Existing baseline

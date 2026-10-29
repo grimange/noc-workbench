@@ -39,3 +39,26 @@ noninteractive OpenSSH restrictions and bounded output (64 KiB / five seconds).
 The Server Details authorization POST verifies the enrollment and schedule
 revisions, preserves all pauses, and schedules only after capability evidence.
 Raw CLI dumps, auth object names, caller IDs and URI credentials are not retained.
+
+
+NW-37 Stage B adds `asterisk.auth.v1`, a static Python 3 fixed-source reader with
+cursor JSON on stdin rather than shell interpolation. It reads logger.conf and
+only configured regular security/security_log/messages/full destinations beneath
+/var/log/asterisk, plus fixed .1/.0 retained generations. Descriptor-based reads,
+O_NOFOLLOW, numeric bounds, 24-KiB chunks, two-chunk dispatches and existing process
+cancellation/output limits bound execution. No remote mutation occurs.
+`asterisk_auth` supplements current enrollment and Asterisk grants; startup never
+enables it. `asterisk.auth.helper.v1` additionally requires the separately disclosed
+`asterisk_auth_helper` grant and exact no-argument sudo delegation to the reviewed
+root-owned `scripts/asterisk-auth-read` wrapper plus fixed root-owned Python file,
+executed as the Asterisk service account with the fixed command
+`/usr/bin/sudo -n -u asterisk -- /usr/local/sbin/noc-asterisk-auth-read`.
+Delegate only `(asterisk) NOPASSWD: NOSETENV: /usr/local/sbin/noc-asterisk-auth-read ""`;
+the empty argument pattern rejects command-line arguments. The service account
+must already be able to read the configuration and selected log.
+The Stage A helper cannot read logs. An administrator must separately authorize
+installation/delegation; no unrestricted sudo, executable config, caller paths,
+new groups, logger reload or permission change is involved. Both grants are
+rechecked after transport capacity admission and at persistence. JSON cursor
+stdin is enabled only for these two commands, retaining no TTY and all host-key,
+identity, route, forwarding and environment restrictions.

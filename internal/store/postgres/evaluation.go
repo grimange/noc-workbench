@@ -170,7 +170,7 @@ func evaluationEvidenceTx(ctx context.Context, tx pgx.Tx, h collection.HistorySc
 			return in, ErrUnavailable
 		}
 	}
-	rows, e = tx.Query(ctx, `SELECT DISTINCT ON(o.key,o.resource_hash) o.id::text,o.run_id::text,o.asset_id::text,o.endpoint_id::text,o.profile_id::text,o.profile_revision,o.collector_id,o.collector_version,o.command_id,o.key,o.resource,o.kind,coalesce(o.text_value,''),coalesce(o.integer_value::text,''),coalesce(o.number_value,0),o.unit,o.transport,o.quality,o.observed_at,o.received_at,o.ttl_seconds FROM observation o JOIN collection_run r ON r.id=o.run_id WHERE r.customer_id=$1 AND r.environment_id=$2 AND o.asset_id=$3 AND o.observed_at<=$4 AND o.received_at<=$4 AND o.recorded_at<=$4 AND r.ended_at<=$4 AND r.evidence_recorded_at<=$4 ORDER BY o.key,o.resource_hash,o.observed_at DESC,o.id DESC LIMIT 2049`, h.CustomerID, h.EnvironmentID, h.AssetID, at)
+	rows, e = tx.Query(ctx, `SELECT DISTINCT ON(o.key,o.resource_hash) o.id::text,o.run_id::text,o.asset_id::text,o.endpoint_id::text,o.profile_id::text,o.profile_revision,o.collector_id,o.collector_version,o.command_id,o.key,o.resource,o.kind,coalesce(o.text_value,''),coalesce(o.integer_value::text,''),coalesce(o.number_value,0),o.unit,o.transport,o.quality,o.observed_at,o.received_at,o.ttl_seconds FROM observation o JOIN collection_run r ON r.id=o.run_id WHERE r.customer_id=$1 AND r.environment_id=$2 AND o.asset_id=$3 AND o.collector_id<>'asterisk.auth' AND o.observed_at<=$4 AND o.received_at<=$4 AND o.recorded_at<=$4 AND r.ended_at<=$4 AND r.evidence_recorded_at<=$4 ORDER BY o.key,o.resource_hash,o.observed_at DESC,o.id DESC LIMIT 2049`, h.CustomerID, h.EnvironmentID, h.AssetID, at)
 	if e != nil {
 		return in, ErrUnavailable
 	}

@@ -48,9 +48,15 @@ func contextFailure(ctx context.Context) error {
 	return fail(ExecutionTimeout)
 }
 func run(ctx context.Context, executable string, args []string, limit int) ([]byte, []byte, int, error) {
+	return runInput(ctx, executable, args, limit, nil)
+}
+func runInput(ctx context.Context, executable string, args []string, limit int, input []byte) ([]byte, []byte, int, error) {
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(childCtx, executable, args...)
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	cmd.Env = []string{"LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin", "HOME=/nonexistent"}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

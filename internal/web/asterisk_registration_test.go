@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/health"
 	ast "noc-workbench/internal/integrations/asterisk"
+	auth "noc-workbench/internal/integrations/asteriskauth"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/store/postgres"
@@ -86,6 +89,11 @@ func (x *registrationWebExecutor) Execute(ctx context.Context, p workspace.Princ
 	}
 	x.calls.Add(1)
 	at := time.Now().UTC()
+	if id == "asterisk.auth.v1" {
+		b := auth.Batch{Source: "security", Status: "current", Security: true, InspectedAt: at, After: auth.Cursor{Identity: "1:2", Generation: 1, Offset: 1000, Anchor: strings.Repeat("a", 64)}, Bytes: 1000, Events: []auth.Event{{Position: 0, At: at.Add(-time.Second), Type: "InvalidPassword", Account: "phone100", IP: "2001:db8::10", Port: 5061, Technology: "PJSIP", Severity: "authentication_failure", Reason: "InvalidPassword"}}}
+		raw, _ := json.Marshal(b)
+		return sshcli.Result{StartedAt: at, EndedAt: at, Stdout: raw}, nil
+	}
 	v := "Asterisk 18.26.4-vici built by synthetic on Linux\n"
 	if x.denied {
 		v = "Unable to connect to remote asterisk (Permission denied)"
@@ -122,7 +130,7 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 		enroll, e := connections.New(db, db, connections.Catalog(lab.Catalog), connections.OperatorPolicy{})
 		must(e)
 		o.Enrollment = enroll
-		registry := linux.Registry().Extend(services.Specs()...).Extend(baseline.Specs()...).Extend(ast.Specs()...)
+		registry := linux.Registry().Extend(services.Specs()...).Extend(baseline.Specs()...).Extend(ast.Specs()...).Extend(auth.Specs()...)
 		svc = collection.NewService(ast.Executor{Next: baseline.Executor{Next: services.Executor{Next: exec, Authority: db}, Authority: db}, Authority: db}, registry, db)
 		o.Discovery = svc
 		sched = scheduler.New(db, svc)
@@ -221,4 +229,35 @@ func TestIntegrationServerRegistrationHTTP(t *testing.T) {
 	if page.Code != 200 || !strings.Contains(page.Body.String(), "Historical snapshot") || !strings.Contains(page.Body.String(), "permission_denied") {
 		t.Fatal("failed attempt history", page.Code)
 	}
+	exec.denied = false
+	grant.Set("auth_logs", "yes")
+	if response := request(h, "POST", connection, grant, cookie); response.Code != 303 {
+		t.Fatal("consolidated log expansion", response.Code)
+	}
+	_, e = svc.Collect(collection.WithRequest(ctx, collection.Request{Source: "operator", Collectors: []string{auth.Collector}}), p, rec.Target())
+	must(e)
+	before = exec.calls.Load()
+	page = request(h, "GET", path+"?auth_window=60", nil, cookie)
+	for _, label := range []string{"Authentication events", "Current collection", "phone100", "2001:db8::10", "5061", "InvalidPassword", "Individual normalized events"} {
+		if page.Code != 200 || !strings.Contains(page.Body.String(), label) {
+			t.Fatal("auth UI", label, page.Code, page.Body.String())
+		}
+	}
+	if script := os.Getenv("NOC_AUTH_BROWSER"); script != "" {
+		t.Setenv("NOC_CONSOLE_BROWSER", script)
+		consoleBrowser(t, h, cookie, path+"?auth_window=60")
+	}
+	if exec.calls.Load() != before {
+		t.Fatal("passive auth GET/SSE collected")
+	}
+	page = request(h, "GET", path+"?auth_account=unmatched", nil, cookie)
+	if page.Code != 200 || strings.Contains(page.Body.String(), "<td>phone100</td>") {
+		t.Fatal("filter ignored")
+	}
+	must(sched.Control(ctx, p, scheduler.Control{Kind: "asset", ID: rec.AssetID, Paused: true}))
+	page = request(h, "GET", path, nil, cookie)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "Authentication monitoring unavailable") {
+		t.Fatal("pause coverage")
+	}
+
 }

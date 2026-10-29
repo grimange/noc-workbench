@@ -33,11 +33,20 @@ func (s *Service) endSSH(ctx context.Context, id, token string) error {
 		// Cleanup acknowledges a durable database write, independently of the
 		// remote execution deadline. Match collection persistence's bounded budget;
 		// a missing acknowledgement still fails closed and retains recovery guards.
-		save, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-		defer cancel()
-		if err := g.EndSSH(save, id, token); err != nil {
-			return &sshcli.Failure{Category: sshcli.GuardUnavailable}
+		for attempt := 0; attempt < 2; attempt++ {
+			save, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			err := g.EndSSH(save, id, token)
+			cancel()
+			if err == nil {
+				return nil
+			}
+			// Remote work has ended. An exact-token delete is safe to acknowledge
+			// again after a lost response; never repeat an empty-token review.
+			if token == "" {
+				break
+			}
 		}
+		return &sshcli.Failure{Category: sshcli.GuardUnavailable}
 	}
 	return nil
 }

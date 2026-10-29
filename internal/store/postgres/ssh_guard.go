@@ -6,6 +6,8 @@ import (
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Target) (string, error) {
@@ -36,11 +38,22 @@ func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Ta
 	}
 	save, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	if tx.Commit(save) != nil {
-		// An uncertain commit remains fail-closed for explicit recovery.
-		return "", connections.ErrState
+	return s.commitSSHGuard(save, tx, t.ProfileID, token)
+}
+
+func (s *Store) commitSSHGuard(ctx context.Context, tx pgx.Tx, profile, token string) (string, error) {
+	if tx.Commit(ctx) == nil {
+		return token, nil
 	}
-	return token, nil
+	// Contact has not started. Retire only this acquisition's known token with
+	// its own bounded acknowledgement. Even successful cleanup cannot authorize
+	// execution; a late/unknown commit still fails closed and may require review.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	if token != "" {
+		_ = s.EndSSH(cleanup, profile, token)
+	}
+	return "", connections.ErrState
 }
 func (s *Store) SSHAllowed(ctx context.Context, t sshcli.Target, token string) error {
 	var allowed bool

@@ -166,7 +166,47 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 		}
 	}
 	tag, e := tx.Exec(ctx, `UPDATE collection_run SET ended_at=$1,state=$2,category=$3,success_count=$4,failure_count=$5 WHERE id=$6 AND state='running'`, r.EndedAt, r.State, r.Category, r.SuccessCount, r.FailureCount, r.ID)
-	if e != nil || tag.RowsAffected() != 1 || tx.Commit(ctx) != nil {
+	if e != nil || tag.RowsAffected() != 1 {
+		return ErrUnavailable
+	}
+	// Capture the complete immutable payload while it is still protected by this
+	// transaction. A lost COMMIT response is not evidence that the write failed.
+	receipt, e := collectionReceipt(ctx, tx, r)
+	if e != nil {
+		return ErrUnavailable
+	}
+	return s.commitCollection(ctx, tx, r, receipt)
+}
+
+// The terminal run, results and observations are committed atomically, including
+// their authentication cursor and activity-state changes. Those mutable derived
+// states may already have advanced by the time an acknowledgement is recovered.
+const collectionReceiptSQL = `SELECT encode(sha256(convert_to(jsonb_build_array(to_jsonb(r),
+ (SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY c.collector_id),'[]'::jsonb) FROM collector_result c WHERE c.run_id=r.id),
+ (SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY o.id),'[]'::jsonb) FROM observation o WHERE o.run_id=r.id)
+ )::text,'UTF8')),'hex') FROM collection_run r
+ WHERE r.id=$1 AND r.principal_id=$2 AND r.asset_id=$3 AND r.endpoint_id=$4 AND r.profile_id=$5 AND r.profile_revision=$6
+ AND r.endpoint_revision=$7 AND r.request_source=$8 AND coalesce(r.schedule_id::text,'')=$9 AND coalesce(r.schedule_revision,0)=$10
+ AND r.state IN ('completed','partial','failed')`
+
+func collectionReceipt(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, r collection.Run) (string, error) {
+	var receipt string
+	e := q.QueryRow(ctx, collectionReceiptSQL, r.ID, r.PrincipalID, r.Target.AssetID, r.Target.EndpointID, r.Target.ProfileID, r.Target.ProfileVersion, r.EndpointRevision, r.Source, r.ScheduleID, r.ScheduleRevision).Scan(&receipt)
+	return receipt, e
+}
+
+func (s *Store) commitCollection(ctx context.Context, tx pgx.Tx, r collection.Run, receipt string) error {
+	if tx.Commit(ctx) == nil {
+		return nil
+	}
+	// Only recover acknowledgement of this exact payload, never replay writes or
+	// remote commands. Missing, changed or unreadable receipts remain fail-closed.
+	verify, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	actual, e := collectionReceipt(verify, s.pool, r)
+	if e != nil || len(receipt) != 64 || actual != receipt {
 		return ErrUnavailable
 	}
 	return nil

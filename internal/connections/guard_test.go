@@ -46,12 +46,47 @@ func TestGuardCleanupPersistenceBudget(t *testing.T) {
 }
 
 func TestGuardCleanupFailureIsLocalAndSanitized(t *testing.T) {
+	attempts := 0
 	s := Service{Repository: cleanupRepository{end: func(context.Context, string, string) error {
+		attempts++
 		return errors.New("sensitive storage detail")
 	}}}
 	err := s.endSSH(context.Background(), "profile", "token")
 	var failure *sshcli.Failure
 	if !errors.As(err, &failure) || failure.Category != sshcli.GuardUnavailable || err.Error() != "SSH transport: ssh_guard_unavailable" {
 		t.Fatalf("cleanup must fail closed with only its local diagnostic: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("cleanup must remain bounded: %d attempts", attempts)
+	}
+}
+
+func TestGuardCleanupLostAcknowledgement(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	attempts := 0
+	s := Service{Repository: cleanupRepository{end: func(save context.Context, profile, token string) error {
+		attempts++
+		if save.Err() != nil || profile != "profile" || token != "exact-token" {
+			t.Fatal("retry lost its independent budget or token")
+		}
+		if attempts == 1 {
+			return context.DeadlineExceeded // DELETE may already have committed.
+		}
+		return nil
+	}}}
+	if e := s.endSSH(ctx, "profile", "exact-token"); e != nil || attempts != 2 {
+		t.Fatalf("acknowledgement recovery: %d %v", attempts, e)
+	}
+}
+
+func TestGuardReviewCleanupIsNotRetried(t *testing.T) {
+	attempts := 0
+	s := Service{Repository: cleanupRepository{end: func(context.Context, string, string) error {
+		attempts++
+		return context.DeadlineExceeded
+	}}}
+	if s.endSSH(context.Background(), "profile", "") == nil || attempts != 1 {
+		t.Fatal("empty-token review must not be retried automatically")
 	}
 }

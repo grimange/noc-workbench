@@ -28,6 +28,38 @@ func TestIntegrationLatestEvidenceSeekParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Large irrelevant retained history and non-root mounts cannot expand the
+	// console's identity discovery. Reuse a valid synthetic observation envelope.
+	_, err = db.pool.Exec(ctx, `INSERT INTO observation(run_id,asset_id,endpoint_id,profile_id,profile_revision,collector_id,collector_version,command_id,key,resource,kind,integer_value,unit,transport,quality,observed_at,received_at,ttl_seconds)
+ SELECT o.run_id,o.asset_id,o.endpoint_id,o.profile_id,o.profile_revision,o.collector_id,o.collector_version,o.command_id,k.key,'/synthetic/'||n,'integer',1,'bytes',o.transport,o.quality,o.observed_at,o.received_at,o.ttl_seconds
+ FROM (SELECT * FROM observation WHERE run_id=$1 AND key='linux.filesystem.total_bytes' LIMIT 1) o
+ CROSS JOIN generate_series(1,200) n
+ CROSS JOIN (VALUES ('linux.filesystem.used_bytes'),('linux.filesystem.total_bytes')) k(key)`, newest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var groupsBefore, groupsAfter int
+	if err = db.pool.QueryRow(ctx, consoleObservationGroups("$1::uuid[]")+`SELECT count(*) FROM observation_groups`, []string{h.AssetID}).Scan(&groupsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.pool.Exec(ctx, `INSERT INTO observation(run_id,asset_id,endpoint_id,profile_id,profile_revision,collector_id,collector_version,command_id,key,resource,kind,integer_value,unit,transport,quality,observed_at,received_at,ttl_seconds)
+ SELECT o.run_id,o.asset_id,o.endpoint_id,o.profile_id,o.profile_revision,o.collector_id,o.collector_version,o.command_id,'linux.filesystem.available_bytes','/synthetic/'||n,'integer',1,'bytes',o.transport,o.quality,o.observed_at,o.received_at,o.ttl_seconds
+ FROM (SELECT * FROM observation WHERE run_id=$1 AND key='linux.filesystem.total_bytes' LIMIT 1) o CROSS JOIN generate_series(1,500) n`, newest.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.pool.QueryRow(ctx, consoleObservationGroups("$1::uuid[]")+`SELECT count(*) FROM observation_groups`, []string{h.AssetID}).Scan(&groupsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if groupsBefore != groupsAfter {
+		t.Fatalf("unrelated history expanded console groups: %d -> %d", groupsBefore, groupsAfter)
+	}
+	var nonRoot int
+	if err = db.pool.QueryRow(ctx, consoleObservationGroups("$1::uuid[]")+`SELECT count(*) FROM observation_groups WHERE key LIKE 'linux.filesystem.%' AND resource_hash<>collection_resource_hash('/')`, []string{h.AssetID}).Scan(&nonRoot); err != nil {
+		t.Fatal(err)
+	}
+	if nonRoot != 0 {
+		t.Fatal("console enumerated non-root filesystem identities")
+	}
 	future := time.Now().UTC().Add(time.Hour)
 	// Independently exclude a newer row by each observation visibility field.
 	for _, q := range []string{

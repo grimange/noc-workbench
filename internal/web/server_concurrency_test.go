@@ -49,15 +49,19 @@ func TestIntegrationServerDetailsRetainedHistoryConcurrent(t *testing.T) {
 		path = "/servers/" + a.ID
 	})
 	cookie := authenticate(t, h)
-	start := make(chan struct{})
-	results := make(chan int, 12)
-	for i := 0; i < 12; i++ {
-		go func() { <-start; results <- request(h, "GET", path, nil, cookie).Code }()
-	}
-	close(start)
-	for i := 0; i < 12; i++ {
-		if status := <-results; status != http.StatusOK {
-			t.Errorf("concurrent Server Details returned %d", status)
-		}
+	for _, destination := range []string{"/", path} {
+		t.Run(destination, func(t *testing.T) {
+			start := make(chan struct{})
+			results := make(chan int, 12)
+			for i := 0; i < 12; i++ {
+				go func() { <-start; results <- request(h, "GET", destination, nil, cookie).Code }()
+			}
+			close(start)
+			for i := 0; i < 12; i++ {
+				if status := <-results; status != http.StatusOK {
+					t.Errorf("concurrent %s returned %d", destination, status)
+				}
+			}
+		})
 	}
 }

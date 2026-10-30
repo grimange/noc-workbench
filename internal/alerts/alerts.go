@@ -49,7 +49,13 @@ type Event struct {
 	At          time.Time
 	Snapshot    Instance
 }
+type Summary struct {
+	LatestEvent                                   int64
+	Active, Pending, Unacknowledged, EnabledRules int
+}
 type View struct {
+	Total, Active, Pending int
+
 	Rules  []Rule
 	Alerts []Instance
 	Events []Event
@@ -66,6 +72,10 @@ type Series struct {
 	Key, Resource string
 }
 type Repository interface {
+	AlertPage(context.Context, workspace.Principal, collection.HistoryScope, int) (View, error)
+	MonitoringAssetPage(context.Context, workspace.Principal, int) ([]collection.HistoryScope, bool, error)
+	AlertSummary(context.Context, workspace.Principal) (Summary, error)
+
 	SaveAlertRule(context.Context, workspace.Principal, collection.HistoryScope, Rule) (Rule, error)
 	AlertView(context.Context, workspace.Principal, collection.HistoryScope) (View, error)
 	AcknowledgeAlert(context.Context, workspace.Principal, collection.HistoryScope, string) error

@@ -20,6 +20,8 @@ type monitoringItem struct {
 	View  alerts.View
 }
 type monitoringData struct {
+	Summary                               alerts.Summary
+	Previous, Next                        string
 	View                                  alerts.View
 	Series                                alerts.Series
 	Evaluation                            health.Evaluation
@@ -44,7 +46,23 @@ func (s *Server) monitoringOverview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Monitoring unavailable", 503)
 		return
 	}
-	scopes, e := repo.MonitoringAssets(r.Context(), operatorPrincipal())
+	offset, e := alertOffset(r, 50)
+	if e != nil {
+		http.Error(w, "Invalid alert page", 400)
+		return
+	}
+	d.Monitoring.Summary, e = repo.AlertSummary(r.Context(), operatorPrincipal())
+	if e != nil {
+		s.inventoryFailure(w, d, e)
+		return
+	}
+	scopes, more, e := repo.MonitoringAssetPage(r.Context(), operatorPrincipal(), offset)
+	if offset > 0 {
+		d.Monitoring.Previous = "/alerts?offset=" + strconv.Itoa(offset-50)
+	}
+	if more {
+		d.Monitoring.Next = "/alerts?offset=" + strconv.Itoa(offset+50)
+	}
 	if e != nil {
 		s.inventoryFailure(w, d, e)
 		return
@@ -87,7 +105,22 @@ func (s *Server) assetMonitoring(w http.ResponseWriter, r *http.Request) {
 		d.Action = "/servers/" + h.AssetID + "/history"
 	}
 	// Prove resource ownership before reads and mutations, including acknowledgment.
-	v, e := repo.AlertView(r.Context(), operatorPrincipal(), h)
+	offset, e := alertOffset(r, 100)
+	if e != nil {
+		http.Error(w, "Invalid alert page", 400)
+		return
+	}
+	v, e := repo.AlertPage(r.Context(), operatorPrincipal(), h, offset)
+	if offset > 0 {
+		q := r.URL.Query()
+		q.Set("offset", strconv.Itoa(offset-100))
+		d.Monitoring.Previous = "?" + q.Encode()
+	}
+	if offset+100 < v.Total {
+		q := r.URL.Query()
+		q.Set("offset", strconv.Itoa(offset+100))
+		d.Monitoring.Next = "?" + q.Encode()
+	}
 	if e != nil {
 		s.inventoryFailure(w, d, e)
 		return
@@ -145,7 +178,7 @@ func (s *Server) assetMonitoring(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Evaluation unavailable", 503)
 		return
 	}
-	d.Monitoring = monitoringData{View: v, Series: series, Evaluation: evaluation, Base: base, Key: key, Resource: resource, Hours: strconv.Itoa(hours)}
+	d.Monitoring = monitoringData{Previous: d.Monitoring.Previous, Next: d.Monitoring.Next, View: v, Series: series, Evaluation: evaluation, Base: base, Key: key, Resource: resource, Hours: strconv.Itoa(hours)}
 	if r.URL.Query().Get("format") == "json" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(d.Monitoring)
@@ -281,6 +314,12 @@ func monitoringFingerprint(v alerts.View, in health.Input) ([32]byte, error) {
 		evaluated.Readings[i].AgeSeconds = 0
 	}
 	evaluated.EvaluatedAt = time.Time{}
+	// Copy the slice so fingerprint normalization never changes the caller's view.
+	v.Alerts = append([]alerts.Instance(nil), v.Alerts...)
+	for i := range v.Alerts {
+		v.Alerts[i].EvaluatedAt = time.Time{}
+		v.Alerts[i].Reading.AgeSeconds = 0
+	}
 	payload, e := json.Marshal(struct {
 		View            alerts.View
 		Evaluation      health.Evaluation
@@ -289,4 +328,16 @@ func monitoringFingerprint(v alerts.View, in health.Input) ([32]byte, error) {
 		Authority       map[string]int64
 	}{v, evaluated, in.Policies, in.Active, in.Trusted, in.Authority})
 	return sha256.Sum256(payload), e
+}
+
+func alertOffset(r *http.Request, size int) (int, error) {
+	raw := r.URL.Query().Get("offset")
+	if raw == "" {
+		return 0, nil
+	}
+	n, e := strconv.Atoi(raw)
+	if e != nil || n < 0 || n > 1000000 || n%size != 0 {
+		return 0, alerts.ErrRule
+	}
+	return n, nil
 }

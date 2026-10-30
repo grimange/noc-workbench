@@ -95,7 +95,13 @@ func readRules(ctx context.Context, tx pgx.Tx, asset string) ([]alerts.Rule, err
 	return out, nil
 }
 func (s *Store) AlertView(ctx context.Context, p workspace.Principal, h collection.HistoryScope) (alerts.View, error) {
+	return s.AlertPage(ctx, p, h, 0)
+}
+func (s *Store) AlertPage(ctx context.Context, p workspace.Principal, h collection.HistoryScope, offset int) (alerts.View, error) {
 	var out alerts.View
+	if offset < 0 || offset > 1000000 || offset%100 != 0 {
+		return out, alerts.ErrRule
+	}
 	if e := collectionAccess(p, h); e != nil {
 		return out, e
 	}
@@ -112,7 +118,10 @@ func (s *Store) AlertView(ctx context.Context, p workspace.Principal, h collecti
 	if e != nil {
 		return out, e
 	}
-	rows, e := tx.Query(ctx, `SELECT snapshot FROM alert_instance WHERE asset_id=$1 ORDER BY updated_at DESC,id LIMIT 100`, h.AssetID)
+	if e = tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE state='active'),count(*) FILTER(WHERE state='pending') FROM alert_instance WHERE asset_id=$1`, h.AssetID).Scan(&out.Total, &out.Active, &out.Pending); e != nil {
+		return out, ErrUnavailable
+	}
+	rows, e := tx.Query(ctx, `SELECT snapshot FROM alert_instance WHERE asset_id=$1 ORDER BY CASE state WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, CASE snapshot->>'Severity' WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, updated_at DESC,id LIMIT 100 OFFSET $2`, h.AssetID, offset)
 	if e != nil {
 		return out, ErrUnavailable
 	}
@@ -361,26 +370,36 @@ func (s *Store) ObservationSeries(ctx context.Context, p workspace.Principal, h 
 // MonitoringAssets is a bounded read; passive dashboard access never advances
 // evaluation cursors or performs collection.
 func (s *Store) MonitoringAssets(ctx context.Context, p workspace.Principal) ([]collection.HistoryScope, error) {
-	if p.ID != workspace.OperatorID {
-		return nil, workspace.ErrDenied
+	rows, _, e := s.MonitoringAssetPage(ctx, p, 0)
+	return rows, e
+}
+func (s *Store) MonitoringAssetPage(ctx context.Context, p workspace.Principal, offset int) ([]collection.HistoryScope, bool, error) {
+	if offset < 0 || offset > 1000000 || offset%50 != 0 {
+		return nil, false, alerts.ErrRule
 	}
-	rows, e := s.pool.Query(ctx, `SELECT e.customer_id::text,a.environment_id::text,a.id::text FROM asset a JOIN environment e ON e.id=a.environment_id ORDER BY a.name,a.id LIMIT 50`)
+	if p.ID != workspace.OperatorID {
+		return nil, false, workspace.ErrDenied
+	}
+	rows, e := s.pool.Query(ctx, `SELECT e.customer_id::text,a.environment_id::text,a.id::text FROM asset a JOIN environment e ON e.id=a.environment_id ORDER BY EXISTS(SELECT 1 FROM alert_instance i WHERE i.asset_id=a.id AND i.state='active') DESC,a.name,a.id LIMIT 51 OFFSET $1`, offset)
 	if e != nil {
-		return nil, ErrUnavailable
+		return nil, false, ErrUnavailable
 	}
 	defer rows.Close()
 	var out []collection.HistoryScope
 	for rows.Next() {
 		var h collection.HistoryScope
 		if rows.Scan(&h.CustomerID, &h.EnvironmentID, &h.AssetID) != nil {
-			return nil, ErrUnavailable
+			return nil, false, ErrUnavailable
 		}
 		out = append(out, h)
 	}
 	if rows.Err() != nil {
-		return nil, ErrUnavailable
+		return nil, false, ErrUnavailable
 	}
-	return out, nil
+	if len(out) > 50 {
+		return out[:50], true, nil
+	}
+	return out, false, nil
 }
 
 // MaintainAlerts retains ninety days of transitions, deleting at most 1000
@@ -406,4 +425,17 @@ func (s *Store) MaintainAlerts(ctx context.Context, at time.Time) error {
 		return ErrUnavailable
 	}
 	return nil
+}
+
+// AlertSummary counts all authorized workspace conditions, independently of page bounds.
+func (s *Store) AlertSummary(ctx context.Context, p workspace.Principal) (alerts.Summary, error) {
+	var out alerts.Summary
+	if p.ID != workspace.OperatorID {
+		return out, workspace.ErrDenied
+	}
+	e := s.pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE state='active'),count(*) FILTER(WHERE state='pending'),count(*) FILTER(WHERE state='active' AND snapshot->>'AcknowledgedAt' IS NULL),(SELECT count(*) FROM (SELECT DISTINCT ON(id) enabled FROM alert_rule ORDER BY id,revision DESC) r WHERE enabled),coalesce((SELECT max(id) FROM alert_event),0) FROM alert_instance`).Scan(&out.Active, &out.Pending, &out.Unacknowledged, &out.EnabledRules, &out.LatestEvent)
+	if e != nil {
+		return out, ErrUnavailable
+	}
+	return out, nil
 }

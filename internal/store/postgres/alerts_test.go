@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"noc-workbench/internal/alerts"
 	"noc-workbench/internal/collection"
 	linux "noc-workbench/internal/collectors/linux"
@@ -247,5 +248,72 @@ func TestIntegrationAlertRetentionDoesNotDeleteReactivated(t *testing.T) {
 	must(db.pool.QueryRow(ctx, `SELECT count(*) FROM alert_instance WHERE asset_id=$1`, h.AssetID).Scan(&count))
 	if count != 0 {
 		t.Fatal("expired resolved identity not removed")
+	}
+}
+
+func TestIntegrationAlertVisibilityPages(t *testing.T) {
+	db, h, target := collectionFixture(t)
+	ctx := context.Background()
+	actor := workspace.Principal{ID: workspace.OperatorID}
+	must := func(e error) {
+		t.Helper()
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	_, e := collection.NewService(historyExecutor{}, linux.Registry(), db).Collect(ctx, actor, target)
+	must(e)
+	p, e := db.SaveEvaluationPolicy(ctx, actor, h, health.Policy{Selector: "linux.mem.available_bytes", TTLSeconds: 180, Rule: "memory_available_low", Threshold: 600000, Enabled: true})
+	must(e)
+	_, e = db.SaveAlertRule(ctx, actor, h, alerts.Rule{PolicyID: p.ID, Severity: "critical", Enabled: true})
+	must(e)
+	must(db.EvaluateAlerts(ctx, h, time.Now().UTC().Add(time.Second)))
+	// Reproduce 100 newer resolved identities displacing an older active incident.
+	_, e = db.pool.Exec(ctx, `INSERT INTO alert_instance(asset_id,rule_id,rule_revision,resource,state,evidence_state,snapshot,evaluated_at,updated_at)
+ SELECT asset_id,rule_id,rule_revision,'synthetic-resource-'||n,'resolved','fresh',jsonb_set(jsonb_set(snapshot,'{State}','"resolved"'),'{Resource}',to_jsonb('synthetic-resource-'||n)),evaluated_at,updated_at+interval '1 second' FROM alert_instance CROSS JOIN generate_series(1,100) n WHERE asset_id=$1`, h.AssetID)
+	must(e)
+	v, e := db.AlertPage(ctx, actor, h, 0)
+	must(e)
+	if v.Total != 101 || v.Active != 1 || len(v.Alerts) != 100 || v.Alerts[0].State != "active" {
+		t.Fatalf("active hidden: %+v", v)
+	}
+	tail, e := db.AlertPage(ctx, actor, h, 100)
+	must(e)
+	if len(tail.Alerts) != 1 || tail.Alerts[0].State != "resolved" {
+		t.Fatal("missing page")
+	}
+	summary, e := db.AlertSummary(ctx, actor)
+	must(e)
+	if summary.Active != 1 || summary.Unacknowledged != 1 || summary.EnabledRules != 1 {
+		t.Fatal(summary)
+	}
+	must(db.AcknowledgeAlert(ctx, actor, h, v.Alerts[0].ID))
+	summary, e = db.AlertSummary(ctx, actor)
+	must(e)
+	if summary.Active != 1 || summary.Unacknowledged != 0 || summary.LatestEvent == 0 {
+		t.Fatal(summary)
+	}
+	for i := range 51 {
+		_, e = db.SaveAsset(ctx, inventory.Asset{EnvironmentID: h.EnvironmentID, Name: fmt.Sprintf("AAA synthetic %02d", i), Kind: "server", Lifecycle: "active"})
+		must(e)
+	}
+	first, more, e := db.MonitoringAssetPage(ctx, actor, 0)
+	must(e)
+	if !more || len(first) != 50 || first[0].AssetID != h.AssetID {
+		t.Fatal("active asset omitted")
+	}
+	next, more, e := db.MonitoringAssetPage(ctx, actor, 50)
+	must(e)
+	if more || len(next) != 2 {
+		t.Fatalf("tail page %d %v", len(next), more)
+	}
+	if _, _, e = db.MonitoringAssetPage(ctx, workspace.Principal{ID: "unauthorized"}, 0); e == nil {
+		t.Fatal("foreign page")
+	}
+	if _, e = db.AlertSummary(ctx, workspace.Principal{ID: "unauthorized"}); e == nil {
+		t.Fatal("foreign summary")
+	}
+	if _, e = db.AlertPage(ctx, actor, h, -1); e == nil {
+		t.Fatal("negative offset")
 	}
 }

@@ -247,6 +247,24 @@ func TestIntegrationEvaluationHTTP(t *testing.T) {
 	if len(data.Series.Samples) != 1 {
 		t.Fatal("real history chart sample", data.Series)
 	}
+	// Alert navigation retains the selected history evidence and range.
+	paged := request(h, "GET", monitorPath+"?format=json&offset=100&key=linux.filesystem.utilization_percent&resource=%2F&hours=168", nil, cookie)
+	if paged.Code != 200 {
+		t.Fatal("alert page", paged.Code, paged.Body.String())
+	}
+	var pd monitoringData
+	must(json.Unmarshal(paged.Body.Bytes(), &pd))
+	u, e := url.Parse(pd.Previous)
+	must(e)
+	if u.Query().Get("key") != "linux.filesystem.utilization_percent" || u.Query().Get("resource") != "/" || u.Query().Get("hours") != "168" || u.Query().Get("offset") != "0" {
+		t.Fatal("pagination lost history", pd.Previous)
+	}
+	for _, route := range []string{"/", "/alerts"} {
+		view := request(h, "GET", route, nil, cookie)
+		if view.Code != 200 || !strings.Contains(view.Body.String(), "1 active") || !strings.Contains(view.Body.String(), "1 unacknowledged") {
+			t.Fatal("missing alert visibility", route, view.Code)
+		}
+	}
 	ack := url.Values{"csrf": {csrf}, "action": {"acknowledge"}, "alert": {av.Alerts[0].ID}}
 	if request(h, "POST", monitorPath, ack, cookie).Code != 303 {
 		t.Fatal("acknowledgment")

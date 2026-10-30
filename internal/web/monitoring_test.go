@@ -40,3 +40,32 @@ func TestMonitoringFingerprintExpiryAndAuthority(t *testing.T) {
 		t.Fatal("authority change missing")
 	}
 }
+
+func TestMonitoringFingerprintWithUnchangedAlert(t *testing.T) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	in := health.Input{At: at, Active: true, Trusted: true}
+	v := alerts.View{Alerts: []alerts.Instance{{ID: "a", State: "active", EvidenceState: "fresh", EvaluatedAt: at, Reading: health.Reading{AgeSeconds: 1}}}}
+	first, e := monitoringFingerprint(v, in)
+	if e != nil {
+		t.Fatal(e)
+	}
+	v.Alerts[0].EvaluatedAt = at.Add(time.Second)
+	v.Alerts[0].Reading.AgeSeconds = 2
+	second, e := monitoringFingerprint(v, in)
+	if e != nil || first != second {
+		t.Fatal("unchanged condition caused reconcile", e)
+	}
+	if v.Alerts[0].EvaluatedAt.IsZero() || v.Alerts[0].Reading.AgeSeconds != 2 {
+		t.Fatal("fingerprint mutated caller")
+	}
+	v.Alerts[0].EvidenceState = "stale"
+	third, _ := monitoringFingerprint(v, in)
+	if third == second {
+		t.Fatal("freshness transition suppressed")
+	}
+	v.Alerts[0].AcknowledgedAt = &at
+	ack, _ := monitoringFingerprint(v, in)
+	if ack == third {
+		t.Fatal("acknowledgment suppressed")
+	}
+}

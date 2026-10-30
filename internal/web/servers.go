@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"noc-workbench/internal/alerts"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/collectors/services"
 	"noc-workbench/internal/health"
@@ -14,6 +15,7 @@ import (
 )
 
 type dashboardData struct {
+	AlertSummary          *alerts.Summary
 	Servers               []consoleServer
 	Query, Next, Previous string
 	Filter, Sort          string
@@ -82,6 +84,14 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
 	}
 	if offset > 0 {
 		d.Dashboard.Previous = pageURL(offset - 25)
+	}
+	if repo, ok := s.store.(alerts.Repository); ok {
+		v, e := repo.AlertSummary(r.Context(), operatorPrincipal())
+		if e != nil {
+			s.inventoryFailure(w, d, e)
+			return
+		}
+		d.Dashboard.AlertSummary = &v
 	}
 	s.render(w, "home.html", d)
 }

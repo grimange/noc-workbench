@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"noc-workbench/internal/alerts"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
 	"noc-workbench/internal/health"
@@ -215,11 +216,19 @@ func (s *Server) consoleEvents(w http.ResponseWriter, r *http.Request) {
 				amiState.Session.UpdatedAt = time.Time{}
 			}
 		}
+		var alertSummary alerts.Summary
+		if repo, ok := s.store.(alerts.Repository); ok {
+			alertSummary, e = repo.AlertSummary(r.Context(), operatorPrincipal())
+			if e != nil {
+				return [32]byte{}, e
+			}
+		}
 		b, e := json.Marshal(struct {
+			Alerts alerts.Summary
 			AMI    ami.View
 			Rows   []consoleServer
 			Counts fleetCounts
-		}{amiState, rows, counts})
+		}{alertSummary, amiState, rows, counts})
 		return sha256.Sum256(b), e
 	})
 }

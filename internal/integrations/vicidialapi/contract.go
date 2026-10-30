@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	ParserVersion     = "vicidial-api.v1"
+	ParserVersion     = "vicidial-api.v2"
 	DocumentedVersion = "2.14-210"
 	DocumentedBuild   = "260925-1400"
+	InstalledVersion  = "2.14-211"
+	InstalledBuild    = "261021-1827"
 	MaxResponse       = 256 * 1024
 	MaxRows           = 1000
 )
@@ -27,6 +29,29 @@ const (
 	Campaigns Operation = "campaigns_list"
 	Agents    Operation = "logged_in_agents"
 )
+
+// compatibleRevision admits only independently inspected response contracts.
+func compatibleRevision(version, build string) bool {
+	return version == DocumentedVersion && build == DocumentedBuild || version == InstalledVersion && build == InstalledBuild
+}
+
+// ParseForContract adds the inspected revision's successful empty visible-row
+// result. This is never a campaign-wide agent count. Callers must verify campaign
+// visibility in the same collection attempt before requesting Agents.
+func ParseForContract(op Operation, body []byte, campaign, version, build string) ([]collection.Observation, error) {
+	if op != Version && !compatibleRevision(version, build) {
+		return nil, fail("unsupported_revision")
+	}
+	observations, err := Parse(op, body, campaign)
+	failure, classified := err.(*Failure)
+	if op == Agents && version == InstalledVersion && build == InstalledBuild && classified && failure.Code == "insufficient_scope" {
+		s := strings.TrimSpace(string(body))
+		if regexp.MustCompile(`^ERROR: logged_in_agents NO LOGGED IN AGENTS: [A-Za-z0-9_-]{1,20}\|$`).MatchString(s) {
+			return agentReadings(0, 0, 0), nil
+		}
+	}
+	return observations, err
+}
 
 // Failure contains only an application-owned classification, never a URL,
 // response body, credential, underlying network error or remote identifier.
@@ -83,7 +108,7 @@ func Parse(op Operation, body []byte, campaign string) ([]collection.Observation
 		switch {
 		case strings.Contains(s, "DOES NOT HAVE PERMISSION"), strings.Contains(s, "NO VIEWABLE CAMPAIGNS"):
 			return nil, fail("permission_denied")
-		case strings.Contains(s, "Invalid Username/Password"), strings.Contains(s, "USER NOT FOUND"), strings.Contains(s, "INVALID USER"):
+		case strings.Contains(s, "Login incorrect"), strings.Contains(s, "Invalid Username/Password"), strings.Contains(s, "USER NOT FOUND"), strings.Contains(s, "INVALID USER"):
 			return nil, fail("authentication_failed")
 		case strings.Contains(s, "INVALID FUNCTION"), strings.Contains(s, "Invalid Function"):
 			return nil, fail("unsupported_function")

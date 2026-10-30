@@ -410,3 +410,65 @@ func TestIntegrationSourceConcurrentRevisionAndScheduleSave(t *testing.T) {
 		t.Fatal("obsolete schedule persisted", count, e)
 	}
 }
+
+func TestIntegrationSourceInstalledRevisionScopeAndEmpty(t *testing.T) {
+	for _, mode := range []string{"empty", "scope-denied", "revision-mismatch"} {
+		t.Run(mode, func(t *testing.T) {
+			s, _, v := sourceFixture(t)
+			service, _, calls, catalog := sourceAPICatalog(t, s, v, func(w http.ResponseWriter, r *http.Request) {
+				switch r.Form.Get("function") {
+				case "version":
+					body := apiVersionBody
+					if mode != "revision-mismatch" {
+						body = strings.ReplaceAll(strings.ReplaceAll(body, api.DocumentedVersion, api.InstalledVersion), api.DocumentedBuild, api.InstalledBuild)
+					}
+					_, _ = w.Write([]byte(body))
+				case "campaigns_list":
+					if mode == "scope-denied" {
+						_, _ = w.Write([]byte("ERROR: campaigns_list THIS USER HAS NO VIEWABLE CAMPAIGNS: synthetic|"))
+					} else {
+						_, _ = w.Write([]byte(apiCampaignBody))
+					}
+				case "logged_in_agents":
+					_, _ = w.Write([]byte("ERROR: logged_in_agents NO LOGGED IN AGENTS: synthetic|\n"))
+				}
+			})
+			data, e := os.ReadFile(catalog)
+			if e != nil {
+				t.Fatal(e)
+			}
+			data = []byte(strings.ReplaceAll(strings.ReplaceAll(string(data), api.DocumentedVersion, api.InstalledVersion), api.DocumentedBuild, api.InstalledBuild))
+			if e = os.WriteFile(catalog, data, 0600); e != nil {
+				t.Fatal(e)
+			}
+			run, e := service.Collect(context.Background(), workspace.Principal{ID: workspace.OperatorID}, v.ID, v.Revision)
+			if e != nil {
+				t.Fatal(e)
+			}
+			want := int32(3)
+			if mode == "scope-denied" {
+				want = 2
+			}
+			if mode == "revision-mismatch" {
+				want = 1
+			}
+			if calls.Load() != want {
+				t.Fatal("unexpected HTTP functions", calls.Load(), want)
+			}
+			if mode == "empty" {
+				if run.State != "completed" || run.SuccessCount != 3 || len(run.Results[2].Observations) != 3 {
+					t.Fatal(run)
+				}
+				for _, o := range run.Results[2].Observations {
+					if o.Value.Integer != 0 || !strings.Contains(o.Key, "visible_") {
+						t.Fatal(o)
+					}
+				}
+			} else {
+				if run.State != "partial" || len(run.Results[2].Observations) != 0 || run.Results[2].TransportOutcome != "not_attempted" {
+					t.Fatal("unverified scope created observations", run)
+				}
+			}
+		})
+	}
+}

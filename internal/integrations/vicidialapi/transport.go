@@ -106,7 +106,7 @@ func (c *Client) Collect(ctx context.Context, id string, revision int64, op Oper
 	if err != nil {
 		return nil, err
 	}
-	if op != Version && (g.ContractVersion != DocumentedVersion || g.ContractBuild != DocumentedBuild) {
+	if op != Version && !compatibleRevision(g.ContractVersion, g.ContractBuild) {
 		return nil, fail("unsupported_revision")
 	}
 	c.mu.Lock()
@@ -224,5 +224,5 @@ func (c *Client) Collect(ctx context.Context, id string, revision int64, op Oper
 	if len(body) > MaxResponse {
 		return nil, fail("response_limit")
 	}
-	return Parse(op, body, g.Campaign)
+	return ParseForContract(op, body, g.Campaign, g.ContractVersion, g.ContractBuild)
 }

@@ -96,12 +96,16 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, id string,
 		return run, e
 	}
 	compatible := false
+	campaignVisible := false
 	versionTransient := false
 	for i, op := range []Operation{Version, Campaigns, Agents} {
 		result := collection.Result{CollectorID: CollectorIDs()[i], Version: "1", CommandID: CollectorIDs()[i] + ".v1", StartedAt: time.Now().UTC(), Outcome: "failed", TransportOutcome: "success"}
 		var obs []collection.Observation
 		var callErr error
-		if i > 0 && !compatible {
+		if op == Agents && !campaignVisible {
+			callErr = fail("scope_unverified")
+			result.TransportOutcome = "not_attempted"
+		} else if i > 0 && !compatible {
 			callErr = fail("unsupported_revision")
 			if versionTransient {
 				callErr = fail("dependency_unavailable")
@@ -154,7 +158,7 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, id string,
 						actualBuild = o.Value.Text
 					}
 				}
-				compatible = actualVersion == DocumentedVersion && actualBuild == DocumentedBuild
+				compatible = compatibleRevision(actualVersion, actualBuild) && actualVersion == grant.ContractVersion && actualBuild == grant.ContractBuild
 			}
 			result.Outcome = "success"
 			result.Observations = obs
@@ -168,6 +172,9 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, id string,
 				result.ObservationCount = 0
 				result.Diagnostics = []collection.Diagnostic{{Code: "authorization_rejected"}}
 			} else {
+				if op == Campaigns {
+					campaignVisible = true
+				}
 				for j := range result.Observations {
 					o := &result.Observations[j]
 					o.SourceID = id

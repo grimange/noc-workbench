@@ -79,3 +79,40 @@ func TestAggregateSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestInstalledRevisionContract(t *testing.T) {
+	empty := "ERROR: logged_in_agents NO LOGGED IN AGENTS: synthetic|\n"
+	for _, tc := range []struct {
+		version, build, body, want string
+		count                      int
+	}{
+		{InstalledVersion, InstalledBuild, empty, "", 3},
+		{DocumentedVersion, DocumentedBuild, empty, "insufficient_scope", 0},
+		{InstalledVersion, DocumentedBuild, empty, "unsupported_revision", 0},
+		{"2.14-212", InstalledBuild, empty, "unsupported_revision", 0},
+		{InstalledVersion, InstalledBuild, empty + "extra", "application_error", 0},
+		{InstalledVersion, InstalledBuild, strings.Replace(empty, "synthetic|", "synthetic|other", 1), "insufficient_scope", 0},
+		{InstalledVersion, InstalledBuild, empty + "\x00", "invalid_response", 0},
+		{InstalledVersion, InstalledBuild, empty + "\v", "invalid_response", 0},
+		{InstalledVersion, InstalledBuild, empty + "\f", "invalid_response", 0},
+		{InstalledVersion, InstalledBuild, strings.Repeat(" ", MaxResponse) + empty, "invalid_response", 0},
+		{InstalledVersion, InstalledBuild, "ERROR: logged_in_agents USER DOES NOT HAVE PERMISSION TO USE THIS FUNCTION: synthetic|", "permission_denied", 0},
+		{InstalledVersion, InstalledBuild, "ERROR: Login incorrect, please try again", "authentication_failed", 0},
+	} {
+		obs, err := ParseForContract(Agents, []byte(tc.body), "SYNTH01", tc.version, tc.build)
+		if code(err) != tc.want || len(obs) != tc.count {
+			t.Fatalf("%s/%s count%d error%v", tc.version, tc.build, len(obs), err)
+		}
+		for _, o := range obs {
+			if !strings.Contains(o.Key, "visible_") || o.Value.Integer != 0 {
+				t.Fatal("invented campaign-wide or nonzero count")
+			}
+		}
+	}
+	for _, op := range []Operation{Version, Campaigns, Agents} {
+		body := map[Operation]string{Version: strings.ReplaceAll(strings.ReplaceAll(versionFixture, DocumentedVersion, InstalledVersion), DocumentedBuild, InstalledBuild), Campaigns: campaignFixture, Agents: agentFixture}[op]
+		if _, err := ParseForContract(op, []byte(body), "SYNTH01", InstalledVersion, InstalledBuild); err != nil {
+			t.Fatal(op, err)
+		}
+	}
+}

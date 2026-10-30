@@ -417,11 +417,12 @@ eligible transient retry uses the existing scheduler. Authentication, permission
 parser and revision failures are not retryable.
 
 Only `version`, `campaigns_list` for one approved campaign, and
-`logged_in_agents` for that campaign are registered. The initial parser contract
-is documentation/source-based **2.14-210 / build 260925-1400**, parser
-`vicidial-api.v1`. This is not a claim of compatibility with a real installed
-VICIdial revision. Exact source and endpoint logging review plus actual runtime
-acceptance are required before real credentials are authorized. API availability
+`logged_in_agents` for that campaign are registered. Parser
+`vicidial-api.v2` supports the documentation/source-based **2.14-210 / build
+260925-1400** contract and the installed-source-inspected **2.14-211 / build
+261021-1827** contract. The live version/build must match the protected grant
+exactly. Endpoint logging review and actual runtime acceptance are required
+before real credentials are authorized. API availability
 and visible agent totals never establish campaign or service health.
 
 **Credential logging boundary:** the reviewed upstream Non-Agent API source copies
@@ -456,8 +457,11 @@ Responses are transient and limited to 256 KiB / 1000 rows. Persisted data is
 limited to version/build, approved campaign configured/active counts, and visible
 logged-in/in-call/paused agent counts. Names, lead identifiers, caller IDs,
 sessions and raw payloads are discarded. `NO VIEWABLE CAMPAIGNS` is a permission
-failure; ambiguous `NO LOGGED IN AGENTS` is insufficient scope, not a fabricated
-zero. HTTP 200 with an application `ERROR` is a failed collector. Independent
+failure. The legacy contract treats `NO LOGGED IN AGENTS` as insufficient
+scope. For the inspected 2.14-211 build only, its exact empty response yields
+zero API-account-visible agents after successful same-attempt campaign visibility
+verification; it does not establish campaign-wide absence. Other application
+`ERROR` responses fail collection even when HTTP status is 200. Independent
 successful collectors and earlier valid readings survive later failure.
 
 Migration 013 extends canonical collection history, observations and schedules

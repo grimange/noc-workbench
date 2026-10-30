@@ -116,7 +116,20 @@ func classify(message string) Category {
 		return ConnectionRefused
 	case bytes.Contains([]byte(message), []byte("connect to host")) && bytes.Contains([]byte(message), []byte("Connection timed out")):
 		return ConnectionTimeout
+	case hasDiagnosticLine(message, "Connection timed out during banner exchange"):
+		// ConnectTimeout also covers SSH identification exchange after TCP
+		// connects. OpenSSH emits this without the "connect to host" prefix.
+		return ConnectionTimeout
 	default:
 		return Internal
 	}
+}
+
+func hasDiagnosticLine(message, diagnostic string) bool {
+	for _, line := range bytes.Split([]byte(message), []byte{'\n'}) {
+		if bytes.Equal(bytes.TrimSpace(line), []byte(diagnostic)) {
+			return true
+		}
+	}
+	return false
 }

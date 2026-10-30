@@ -66,25 +66,59 @@ func (s *Store) AMIBindings(ctx context.Context, p workspace.Principal) ([]ami.B
 		if rows.Scan(&b.Target.ProfileID, &b.Scope.CustomerID, &b.Scope.EnvironmentID, &b.Target.AssetID, &b.Target.EndpointID, &b.Target.ProfileVersion, &b.Ref, &b.Digest, &b.Enabled) != nil {
 			return nil, ErrUnavailable
 		}
-		b.Scope.AssetID = b.Target.AssetID
-		for _, p := range snapshot.Profiles {
-			if p.CollectionSource.ID == "" && p.Target == b.Target && p.CustomerID == b.Scope.CustomerID && p.EnvironmentID == b.Scope.EnvironmentID {
-				b.Eligible = p.EvidenceEligible && p.Enabled && p.Authorized
-				b.Paused = snapshot.Paused || snapshot.Stopped || p.Paused
-				break
-			}
-		}
-		if s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk") != nil {
-			b.Eligible = false
-		}
-		b.Activity = s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_activity") == nil
-		b.Media = b.Activity && s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk_media") == nil
 		out = append(out, b)
 	}
 	if rows.Err() != nil || len(out) > 1000 {
 		return nil, ErrUnavailable
 	}
+	// Release the result connection before enrichment acquires another pool
+	// connection. This also permits single-connection pools and concurrent views.
+	rows.Close()
+	for i := range out {
+		b := &out[i]
+		b.Scope.AssetID = b.Target.AssetID
+		b.BlockReason = "authorization_revoked"
+		for _, p := range snapshot.Profiles {
+			if p.CollectionSource.ID == "" && p.Target == b.Target && p.CustomerID == b.Scope.CustomerID && p.EnvironmentID == b.Scope.EnvironmentID {
+				b.Eligible = p.EvidenceEligible && p.Enabled && p.Authorized
+				b.BlockReason = ""
+				if !p.Authorized || !p.EvidenceEligible {
+					b.BlockReason = "authorization_revoked"
+				} else if !p.Enabled {
+					b.BlockReason = "monitoring_disabled"
+				}
+				b.Paused = snapshot.Paused || snapshot.Stopped || p.Paused
+				break
+			}
+		}
+		if err := s.IntegrationAllowed(ctx, workspace.Principal{ID: workspace.OperatorID}, b.Target, "asterisk"); err != nil {
+			if !errors.Is(err, workspace.ErrDenied) {
+				return nil, err
+			}
+			b.Eligible = false
+			b.BlockReason = "authorization_revoked"
+		}
+		if err := amiOptionalGrants(ctx, s.pool, b); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
+}
+
+// An unavailable grant read must never be projected as a withdrawn capability.
+func amiOptionalGrants(ctx context.Context, q integrationQuery, b *ami.Binding) error {
+	for _, grant := range []struct {
+		name    string
+		allowed *bool
+	}{{"asterisk_activity", &b.Activity}, {"asterisk_media", &b.Media}} {
+		err := integrationAllowed(ctx, q, workspace.Principal{ID: workspace.OperatorID}, b.Target, grant.name)
+		if err != nil && !errors.Is(err, workspace.ErrDenied) {
+			return err
+		}
+		*grant.allowed = err == nil
+	}
+	b.Media = b.Activity && b.Media
+	return nil
 }
 
 // Transactions hold the grant, enrollment and pause-control rows through event
@@ -294,6 +328,22 @@ func (s *Store) AMIView(ctx context.Context, p workspace.Principal, h collection
 		v.State = "unauthorized"
 		v.Current = false
 		v.Reason = "AMI forwarding authorization is absent or its enrollment revision changed"
+	}
+	if v.Authorized {
+		bindings, err := s.AMIBindings(ctx, p)
+		if err != nil {
+			return v, err
+		}
+		for _, b := range bindings {
+			if b.Target == t {
+				if b.Paused {
+					v.State, v.Reason, v.Current = "paused", "monitoring_paused", false
+				} else if b.BlockReason != "" {
+					v.State, v.Reason, v.Current = "disconnected", b.BlockReason, false
+				}
+				break
+			}
+		}
 	}
 	var lastConnection, lastEvent *time.Time
 	if s.pool.QueryRow(ctx, `SELECT max(connected_at),max(last_event_at) FROM asterisk_ami_session WHERE customer_id=$1 AND environment_id=$2 AND asset_id=$3`, h.CustomerID, h.EnvironmentID, h.AssetID).Scan(&lastConnection, &lastEvent) != nil {

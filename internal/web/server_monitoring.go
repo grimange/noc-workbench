@@ -25,6 +25,7 @@ type runtimeRow struct {
 	AgeSeconds                          int64
 }
 type runtimeData struct {
+	RunSummary                  string
 	AuthorizationDiagnostic     string
 	ConnectivityTTL             int
 	Paused, Authorized          bool
@@ -88,9 +89,31 @@ func (s *Server) serverRuntime(r *http.Request, v workspace.ServerDetail, in hea
 
 func runtimeReadings(d runtimeData, in health.Input, out health.Evaluation) runtimeData {
 	d.Freshness = ""
+	d.RunSummary = "Unknown"
 	d.Outcome = "Not attempted"
 	if d.Attempt != nil {
 		d.Outcome = d.Attempt.State
+		label := "Unknown"
+		switch d.Attempt.State {
+		case "cancelled":
+			label = "Cancelled"
+		case "partial":
+			label = "Partial"
+		case "failed":
+			label = "Failed"
+		case "completed":
+			if d.Attempt.FailureCount == 0 && d.Attempt.SuccessCount > 0 {
+				label = "Success"
+			} else if d.Attempt.SuccessCount > 0 {
+				label = "Partial"
+			} else if d.Attempt.FailureCount > 0 {
+				label = "Failed"
+			}
+		}
+		d.RunSummary = fmt.Sprintf("%s — %d successful, %d failed", label, d.Attempt.SuccessCount, d.Attempt.FailureCount)
+		if !d.Enabled || in.At.Sub(d.Attempt.EndedAt) > 120*time.Second {
+			d.RunSummary = "Historical: " + d.RunSummary
+		}
 		for _, result := range d.Attempt.Results {
 			if result.CollectorID == services.Collector {
 				d.Outcome = result.Outcome
@@ -156,10 +179,8 @@ func runtimeReadings(d runtimeData, in health.Input, out health.Evaluation) runt
 	}
 	if d.Outcome == "" {
 		d.Outcome = "Not attempted"
-		if d.Attempt != nil {
-			d.Outcome = d.Attempt.State
-		}
 	}
+
 	d.Summary = "Unknown — no runtime evidence"
 	if !d.Enabled {
 		d.Summary = d.Status

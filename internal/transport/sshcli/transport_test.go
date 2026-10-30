@@ -111,7 +111,7 @@ func TestTrustAndProfileChanges(t *testing.T) {
 		return p, errors.New("secret")
 	})
 	_, err := e.Execute(context.Background(), actor, p.Target, "lab.probe.v1")
-	category(t, err, PermissionDenied)
+	category(t, err, StorageFailure)
 }
 func TestDNSChange(t *testing.T) {
 	p, e := fixture(t)

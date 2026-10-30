@@ -338,3 +338,31 @@ func TestActivityAuthorityChangesSubscriptionAndDropsUnsolicitedEvents(t *testin
 		t.Fatal("subscription change session ownership", r.begins)
 	}
 }
+
+func TestMonitoringDisabledPreservesAuthorizationReason(t *testing.T) {
+	s, r, f, _ := workerFixture(t)
+	ticks := make(chan time.Time)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- s.run(ctx, ticks) }()
+	<-r.snapshots
+	c := <-f.opens
+	acceptLogin(t, c)
+	awaitTransition(t, r, "connected")
+	r.mu.Lock()
+	r.binding.Eligible = false
+	r.binding.BlockReason = "monitoring_disabled"
+	r.mu.Unlock()
+	ticks <- time.Now()
+	<-r.snapshots
+	tr := awaitTransition(t, r, "disconnected")
+	if tr.Reason != "monitoring_disabled" || !tr.Gap {
+		t.Fatal(tr)
+	}
+	c.Close()
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

@@ -2,6 +2,8 @@ package connections
 
 import (
 	"context"
+	"errors"
+	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 	"time"
@@ -12,7 +14,10 @@ import (
 // This live guard is repeated for each command, including after earlier failures.
 func (s *Service) Execute(ctx context.Context, p workspace.Principal, t sshcli.Target, id string) (sshcli.Result, error) {
 	r, err := s.Repository.Enrollment(ctx, t.EndpointID, t.ProfileID)
-	if err != nil || r.Target() != t || r.State != "connection_verified" {
+	if err != nil {
+		return localResult(err)
+	}
+	if r.Target() != t || r.State != "connection_verified" {
 		now := time.Now().UTC()
 		return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
 	}
@@ -21,8 +26,7 @@ func (s *Service) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 	}
 	guarded, token, guardErr := s.beginSSH(ctx, p, t)
 	if guardErr != nil {
-		now := time.Now().UTC()
-		return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
+		return localResult(guardErr)
 	}
 	result, err := s.executor.Execute(guarded, p, t, id)
 	if result.Category == sshcli.ChangedKey || result.Category == sshcli.UnknownKey {
@@ -49,4 +53,15 @@ func (s *Service) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 		return result, e
 	}
 	return result, err
+}
+
+func localResult(err error) (sshcli.Result, error) {
+	if errors.Is(err, inventory.ErrNotFound) {
+		err = &sshcli.Failure{Category: sshcli.PermissionDenied, Cause: err}
+	}
+	err = sshcli.LocalFailure(err)
+	var f *sshcli.Failure
+	errors.As(err, &f)
+	now := time.Now().UTC()
+	return sshcli.Result{StartedAt: now, EndedAt: now, Category: f.Category}, err
 }

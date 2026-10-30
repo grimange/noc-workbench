@@ -17,6 +17,7 @@ type Binding struct {
 	Scope                     collection.HistoryScope
 	Target                    sshcli.Target
 	Ref, Digest               string
+	BlockReason               string
 	Enabled, Eligible, Paused bool
 	Activity                  bool
 	Media                     bool
@@ -145,8 +146,13 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time) error {
 				c, ok := credentials[b.Ref]
 				if ok && b.Enabled && b.Eligible && !b.Paused {
 					check, cancel := context.WithTimeout(ctx, 5*time.Second)
-					if s.Forwarder.Check(check, workspace.Principal{ID: workspace.OperatorID}, b.Target, c) != nil {
+					if err := s.Forwarder.Check(check, workspace.Principal{ID: workspace.OperatorID}, b.Target, c); err != nil {
 						b.Eligible = false
+						b.BlockReason = "authority_unavailable"
+						var f *sshcli.Failure
+						if errors.Is(err, workspace.ErrDenied) || errors.As(err, &f) && (f.Category == sshcli.PermissionDenied || f.Category == sshcli.ChangedKey || f.Category == sshcli.UnknownKey || f.Category == "credential_unavailable") {
+							b.BlockReason = "authorization_revoked"
+						}
 					}
 					cancel()
 				}
@@ -159,6 +165,8 @@ func (s *Service) run(ctx context.Context, ticks <-chan time.Time) error {
 			reason := "authorization_revoked"
 			if err != nil {
 				reason = "authority_unavailable"
+			} else if b.BlockReason != "" {
+				reason = b.BlockReason
 			} else if b.Paused {
 				reason = "monitoring_paused"
 			}
@@ -219,8 +227,8 @@ func (s *Service) sessionLoop(ctx context.Context, b Binding, c sshcli.AMICreden
 						state, reason = "paused", "monitoring_paused"
 					case "authorization_revoked":
 						state, reason = "unauthorized", "authorization_revoked"
-					case "authority_unavailable":
-						state, reason = "disconnected", "authority_unavailable"
+					case "authority_unavailable", "monitoring_disabled":
+						state, reason = "disconnected", cause.Error()
 					default:
 						state = "disconnected"
 					}

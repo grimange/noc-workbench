@@ -79,7 +79,7 @@ func (f *AMIForwarder) Check(ctx context.Context, actor workspace.Principal, t T
 	}
 	p, err := f.Approval.ApproveAMI(ctx, actor, t)
 	if err != nil {
-		return fail(PermissionDenied)
+		return LocalFailure(err)
 	}
 	if err = validProfile(p, t); err != nil {
 		return err
@@ -102,7 +102,7 @@ func (f *AMIForwarder) Open(ctx context.Context, actor workspace.Principal, t Ta
 	}
 	p, err := f.Approval.ApproveAMI(ctx, actor, t)
 	if err != nil {
-		return nil, fail(PermissionDenied)
+		return nil, LocalFailure(err)
 	}
 	if validProfile(p, t) != nil {
 		return nil, fail(InvalidTarget)

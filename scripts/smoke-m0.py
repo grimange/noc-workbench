@@ -17,6 +17,8 @@ import urllib.request
 
 project = sys.argv[1]
 compose = ["docker", "compose", "-p", project, "-f", "deployments/compose.yaml"]
+if len(sys.argv) > 2 and sys.argv[2]:
+    compose += ["-f", sys.argv[2]]
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
 port = sock.getsockname()[1]
@@ -168,7 +170,7 @@ try:
         backup.seek(0)
         subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "noc_workbench", "-d", "nw_restore_smoke", "--exit-on-error"], stdin=backup, check=True)
     restored = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT (SELECT count(*) FROM schema_migration),(SELECT count(*) FROM customer),(SELECT count(*) FROM environment),(SELECT note FROM operator_setting WHERE id=1),(SELECT count(*) FROM workspace_pin),(SELECT count(*) FROM operator_note),(SELECT count(*) FROM external_link),(SELECT count(*) FROM workspace_principal)"], text=True).strip()
-    assert restored == "23|3|3|" + original_label + "|0|1|1|1", "database backup restore mismatch"
+    assert restored == "24|3|3|" + original_label + "|0|1|1|1", "database backup restore mismatch"
     restored_count = subprocess.check_output(dbtools + ["psql", "-X", "-U", "noc_workbench", "-d", "nw_restore_smoke", "-Atc", "SELECT count(*) FROM service_instance_host"], text=True).strip()
     assert int(restored_count) == 8, "imported host bindings lost in restore"
     subprocess.run(dbtools + ["dropdb", "-U", "noc_workbench", "nw_restore_smoke"], check=True)

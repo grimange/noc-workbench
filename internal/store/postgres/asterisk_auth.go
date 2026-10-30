@@ -18,8 +18,8 @@ import (
 )
 
 func (s *Store) AuthCursors(ctx context.Context, p workspace.Principal, t sshcli.Target) (map[string]auth.Cursor, error) {
-	if s.IntegrationAllowed(ctx, p, t, "asterisk_auth") != nil {
-		return nil, workspace.ErrDenied
+	if err := s.IntegrationAllowed(ctx, p, t, "asterisk_auth"); err != nil {
+		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT source,identity,byte_offset,generation,anchor,coverage_gap,discard_line FROM asterisk_auth_cursor WHERE profile_id=$1 AND asset_id=$2 AND endpoint_id=$3`, t.ProfileID, t.AssetID, t.EndpointID)
 	if err != nil {
@@ -71,14 +71,14 @@ func persistAuth(ctx context.Context, tx pgx.Tx, p workspace.Principal, r collec
 		return collection.ErrPersistence
 	}
 	var customer, environment string
-	if tx.QueryRow(ctx, `SELECT customer_id::text,environment_id::text FROM collection_run WHERE id=$1`, r.ID).Scan(&customer, &environment) != nil {
-		return ErrUnavailable
+	if err = tx.QueryRow(ctx, `SELECT customer_id::text,environment_id::text FROM collection_run WHERE id=$1`, r.ID).Scan(&customer, &environment); err != nil {
+		return persistenceError("authentication", err)
 	}
 	if b.Source != "" {
 		var old auth.Cursor
 		err = tx.QueryRow(ctx, `SELECT identity,byte_offset,generation,anchor,coverage_gap,discard_line FROM asterisk_auth_cursor WHERE profile_id=$1 AND source=$2 FOR UPDATE`, r.Target.ProfileID, b.Source).Scan(&old.Identity, &old.Offset, &old.Generation, &old.Anchor, &old.Gap, &old.Discard)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return ErrUnavailable
+			return persistenceError("authentication", err)
 		}
 		if old != b.Before {
 			return collection.ErrPersistence
@@ -87,16 +87,19 @@ func persistAuth(ctx context.Context, tx pgx.Tx, p workspace.Principal, r collec
 		// are a second barrier. Interrupted pre-commit batches can be retried intact.
 		for _, v := range b.Events {
 			if _, err = tx.Exec(ctx, `INSERT INTO asterisk_auth_event(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,source,identity,generation,byte_position,event_at,event_type,account,observed_ip,observed_port,technology,severity,reason,parser_version,run_id,coverage_gap) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,nullif($14,'')::inet,nullif($15,0),$16,$17,$18,'1',$19,$20) ON CONFLICT(asset_id,endpoint_id,source,identity,generation,byte_position,event_at) DO NOTHING`, customer, environment, r.Target.AssetID, r.Target.EndpointID, r.Target.ProfileID, r.Target.ProfileVersion, b.Source, b.After.Identity, b.After.Generation, v.Position, v.At, v.Type, v.Account, v.IP, v.Port, v.Technology, v.Severity, v.Reason, r.ID, b.After.Gap); err != nil {
-				return ErrUnavailable
+				return persistenceError("authentication", err)
 			}
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO asterisk_auth_cursor(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,source,identity,generation,byte_offset,anchor,coverage_gap,discard_line) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(profile_id,source) DO UPDATE SET profile_revision=excluded.profile_revision,identity=excluded.identity,generation=excluded.generation,byte_offset=excluded.byte_offset,anchor=excluded.anchor,coverage_gap=excluded.coverage_gap,discard_line=excluded.discard_line,updated_at=clock_timestamp()`, customer, environment, r.Target.AssetID, r.Target.EndpointID, r.Target.ProfileID, r.Target.ProfileVersion, b.Source, b.After.Identity, b.After.Generation, b.After.Offset, b.After.Anchor, b.After.Gap, b.After.Discard)
 		if err != nil {
-			return ErrUnavailable
+			return persistenceError("authentication", err)
 		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO asterisk_auth_status(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,source,status,checked_at,security_category,rejected_lines) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(profile_id,profile_revision) DO UPDATE SET source=excluded.source,status=excluded.status,checked_at=excluded.checked_at,security_category=excluded.security_category,rejected_lines=excluded.rejected_lines`, customer, environment, r.Target.AssetID, r.Target.EndpointID, r.Target.ProfileID, r.Target.ProfileVersion, b.Source, b.Status, b.InspectedAt, b.Security, b.Rejected)
-	return err
+	if err != nil {
+		return persistenceError("authentication_status", err)
+	}
+	return nil
 }
 
 func (s *Store) AuthEvents(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, f auth.Filter, now time.Time) (auth.View, error) {

@@ -404,7 +404,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 23 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 24 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {
@@ -539,4 +539,5 @@ func TestIntegrationNW037ActivityUpgrade(t *testing.T) { testUpgrade(t, "021", 2
 
 func TestIntegrationNW037MediaUpgrade(t *testing.T) { testUpgrade(t, "022", 21) }
 
-func TestIntegrationNW017MariaDBUpgrade(t *testing.T) { testUpgrade(t, "023", 22) }
+func TestIntegrationNW017MariaDBUpgrade(t *testing.T)       { testUpgrade(t, "023", 22) }
+func TestIntegrationMonitoringRecoveryUpgrade(t *testing.T) { testUpgrade(t, "024", 23) }

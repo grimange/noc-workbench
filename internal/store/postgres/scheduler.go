@@ -247,6 +247,12 @@ func (s *Store) CompleteSchedule(ctx context.Context, p scheduler.Profile, r col
 		category = "authority_unavailable"
 		disable = true
 	}
+	if noAttempt && errors.Is(runErr, collection.ErrPersistence) {
+		state, category, disable = "failed", "collection_persistence_failure", false
+	}
+	if noAttempt && errors.Is(runErr, workspace.ErrDenied) {
+		state, category, disable = "blocked", "permission_denied", true
+	}
 	if errors.Is(runErr, collection.ErrBusy) {
 		state = "delayed"
 		category = "shared_capacity"
@@ -263,7 +269,14 @@ func (s *Store) CompleteSchedule(ctx context.Context, p scheduler.Profile, r col
 	if !noAttempt && runErr != nil {
 		state = "failed"
 		category = "collection_persistence_failure"
-		disable = true
+		disable = false
+	}
+	// A guard's uncertain ownership takes precedence over its underlying
+	// deadline: it needs reconciliation, not an ordinary timeout retry.
+	var execution *sshcli.Failure
+	if noAttempt && errors.As(runErr, &execution) {
+		category = string(execution.Category)
+		state, disable = "blocked", false
 	}
 	switch category {
 	case "host_key_mismatch", "unknown_host_key", "permission_denied", "authentication_failed", "stale_profile", "credential_unavailable":
@@ -296,6 +309,9 @@ func (s *Store) CompleteSchedule(ctx context.Context, p scheduler.Profile, r col
 // Final scheduled admission occurs in the same transaction as the durable run.
 func validateScheduleAdmission(ctx context.Context, tx pgx.Tx, rec connections.Record, req collection.Request) (scheduler.Profile, error) {
 	p, e := scanSchedule(tx.QueryRow(ctx, `SELECT `+scheduleColumns+` FROM collection_schedule s WHERE s.id=$1 AND s.revision=$2 AND s.enabled AND s.authorized AND NOT s.paused AND s.next_due<=clock_timestamp() AND s.endpoint_revision=(SELECT updated_at FROM asset_endpoint WHERE id=s.endpoint_id) AND NOT EXISTS(SELECT 1 FROM schedule_pause p WHERE p.customer_id=s.customer_id OR p.asset_id=s.asset_id OR p.cluster_id IN(SELECT cluster_id FROM cluster_membership WHERE asset_id=s.asset_id)) AND NOT EXISTS(SELECT 1 FROM cluster_membership m JOIN cluster c ON c.id=m.cluster_id WHERE m.asset_id=s.asset_id AND c.lifecycle<>'active') FOR UPDATE`, req.ScheduleID, req.Revision))
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return p, errors.Join(ErrUnavailable, e)
+	}
 	if e != nil || p.PrincipalID != workspace.OperatorID || p.Target != rec.Target() || !reflect.DeepEqual(p.Collectors, req.Collectors) || time.Duration(p.Budget)*time.Second != req.Budget {
 		return p, scheduler.ErrInvalid
 	}

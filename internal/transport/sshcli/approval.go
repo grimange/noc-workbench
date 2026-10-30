@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/netip"
 	"os"
@@ -94,19 +95,43 @@ func ValidateInventoryProfile(ctx context.Context, inv Inventory, p Profile, t T
 		return fail(PermissionDenied)
 	}
 	c, err := inv.Customer(ctx, p.CustomerID)
-	if err != nil || c.Status != "active" || c.ID != p.CustomerID {
+	if err != nil {
+		if errors.Is(err, inventory.ErrNotFound) {
+			return fail(PermissionDenied)
+		}
+		return LocalFailure(err)
+	}
+	if c.Status != "active" || c.ID != p.CustomerID {
 		return fail(PermissionDenied)
 	}
 	env, err := inv.Environment(ctx, p.CustomerID, p.EnvironmentID)
-	if err != nil || env.Status != "active" || env.ID != p.EnvironmentID || env.CustomerID != c.ID {
+	if err != nil {
+		if errors.Is(err, inventory.ErrNotFound) {
+			return fail(PermissionDenied)
+		}
+		return LocalFailure(err)
+	}
+	if env.Status != "active" || env.ID != p.EnvironmentID || env.CustomerID != c.ID {
 		return fail(PermissionDenied)
 	}
 	a, err := inv.GetAsset(ctx, p.EnvironmentID, t.AssetID)
-	if err != nil || a.Lifecycle != "active" || a.ID != t.AssetID || a.EnvironmentID != env.ID {
+	if err != nil {
+		if errors.Is(err, inventory.ErrNotFound) {
+			return fail(PermissionDenied)
+		}
+		return LocalFailure(err)
+	}
+	if a.Lifecycle != "active" || a.ID != t.AssetID || a.EnvironmentID != env.ID {
 		return fail(PermissionDenied)
 	}
 	ep, err := inv.GetEndpoint(ctx, p.EnvironmentID, t.EndpointID)
-	if err != nil || ep.ID != t.EndpointID || ep.AssetID != a.ID || ep.EnvironmentID != env.ID || ep.Protocol != "ssh" || ep.Status != "active" || !ep.UpdatedAt.Equal(p.EndpointUpdatedAt) || ep.Host != p.Host || ep.Port != int(p.Port) {
+	if err != nil {
+		if errors.Is(err, inventory.ErrNotFound) {
+			return fail(PermissionDenied)
+		}
+		return LocalFailure(err)
+	}
+	if ep.ID != t.EndpointID || ep.AssetID != a.ID || ep.EnvironmentID != env.ID || ep.Protocol != "ssh" || ep.Status != "active" || !ep.UpdatedAt.Equal(p.EndpointUpdatedAt) || ep.Host != p.Host || ep.Port != int(p.Port) {
 		return fail(PermissionDenied)
 	}
 	return nil

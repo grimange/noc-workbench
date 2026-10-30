@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"noc-workbench/internal/scheduler"
 	"reflect"
 	"regexp"
@@ -41,16 +43,22 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 		return collection.Run{}, workspace.ErrDenied
 	}
 	r, e := s.Enrollment(ctx, t.EndpointID, t.ProfileID)
-	if e != nil || r.Target() != t || r.State != "connection_verified" {
+	if e != nil {
+		return collection.Run{}, e
+	}
+	if r.Target() != t || r.State != "connection_verified" {
 		return collection.Run{}, workspace.ErrDenied
 	}
 	tx, e := s.pool.Begin(ctx)
 	if e != nil {
-		return collection.Run{}, ErrUnavailable
+		return collection.Run{}, errors.Join(ErrUnavailable, e)
 	}
 	defer tx.Rollback(context.Background())
 	var paused, stopped bool
-	if e = tx.QueryRow(ctx, `SELECT paused,stopped FROM scheduler_control WHERE id FOR SHARE`).Scan(&paused, &stopped); e != nil || stopped {
+	if e = tx.QueryRow(ctx, `SELECT paused,stopped FROM scheduler_control WHERE id FOR SHARE`).Scan(&paused, &stopped); e != nil {
+		return collection.Run{}, errors.Join(ErrUnavailable, e)
+	}
+	if stopped {
 		return collection.Run{}, workspace.ErrDenied
 	}
 	if e = lockEnrollmentOwners(ctx, tx, r); e != nil {
@@ -85,13 +93,42 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 	if e == nil && req.Source == "scheduled" {
 		_, e = tx.Exec(ctx, `UPDATE collection_schedule SET last_dispatch=$1,next_due=$2,state='running',category='',lag_seconds=greatest(0,extract(epoch FROM $1-next_due)) WHERE id=$3`, out.StartedAt, scheduler.Next(profile, out.StartedAt), profile.ID)
 	}
-	if e != nil || tx.Commit(ctx) != nil {
-		return out, ErrUnavailable
+	if errors.Is(e, pgx.ErrNoRows) {
+		return out, &sshcli.Failure{Category: sshcli.GuardConflict, Cause: e}
+	}
+	if e != nil {
+		return out, errors.Join(ErrUnavailable, e)
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return out, errors.Join(ErrUnavailable, e)
 	}
 	return out, nil
 }
 
 var safeDiagnostic = regexp.MustCompile(`^[a-z_]{1,80}$`)
+
+// persistenceFailure preserves error identity without printing driver messages,
+// SQL parameters or connection details into collection diagnostics.
+type persistenceFailure struct {
+	stage string
+	cause error
+}
+
+func (e *persistenceFailure) Error() string {
+	category := "storage_failure"
+	var pg *pgconn.PgError
+	switch {
+	case errors.Is(e.cause, context.Canceled):
+		category = "cancelled"
+	case errors.Is(e.cause, context.DeadlineExceeded):
+		category = "deadline_exceeded"
+	case errors.As(e.cause, &pg):
+		category = "sqlstate_" + pg.Code
+	}
+	return "application database unavailable: " + e.stage + ": " + category
+}
+func (e *persistenceFailure) Unwrap() []error          { return []error{ErrUnavailable, e.cause} }
+func persistenceError(stage string, cause error) error { return &persistenceFailure{stage, cause} }
 
 func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r collection.Run, ttl int) error {
 	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 12) || ttl < 1 || ttl > 86400 {
@@ -100,17 +137,20 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 	r.Summarize()
 	tx, e := s.pool.Begin(ctx)
 	if e != nil {
-		return ErrUnavailable
+		return persistenceError("begin", e)
 	}
 	defer tx.Rollback(context.Background())
 	var target collection.Run
 	target, e = scanRun(tx.QueryRow(ctx, `SELECT `+runColumns+` FROM collection_run WHERE id=$1 AND principal_id=$2 AND state='running' FOR UPDATE`, r.ID, p.ID))
-	if e != nil || target.Target != r.Target {
+	if e != nil {
+		return persistenceError("lock_run", e)
+	}
+	if target.Target != r.Target {
 		return collection.ErrPersistence
 	}
 	var expected []string
-	if tx.QueryRow(ctx, `SELECT collector_ids FROM collection_run WHERE id=$1`, r.ID).Scan(&expected) != nil {
-		return collection.ErrPersistence
+	if e = tx.QueryRow(ctx, `SELECT collector_ids FROM collection_run WHERE id=$1`, r.ID).Scan(&expected); e != nil {
+		return persistenceError("expected_collectors", e)
 	}
 	got := []string{}
 	for _, c := range r.Results {
@@ -126,8 +166,8 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 			return collection.ErrPersistence
 		}
 		if c.CollectorID == mariadb.Collector {
-			if integrationAllowed(ctx, tx, p, r.Target, "mariadb") != nil {
-				return workspace.ErrDenied
+			if err := integrationAllowed(ctx, tx, p, r.Target, "mariadb"); err != nil {
+				return err
 			}
 			if len(c.Observations) > 0 {
 				if _, err := mariadb.Decode(c.Observations); err != nil {
@@ -143,7 +183,7 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 			diag = append(diag, d.Code)
 		}
 		if _, e = tx.Exec(ctx, `INSERT INTO collector_result(run_id,collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, r.ID, c.CollectorID, c.Version, c.CommandID, c.Outcome, c.TransportOutcome, c.StartedAt, c.EndedAt, len(c.Observations), diag); e != nil {
-			return ErrUnavailable
+			return persistenceError("result_insert", e)
 		}
 		if c.CollectorID == activity.Collector {
 			if err := persistActivity(ctx, tx, p, r, c); err != nil {
@@ -172,19 +212,19 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 			}
 			_, e = tx.Exec(ctx, `INSERT INTO observation(run_id,asset_id,endpoint_id,profile_id,profile_revision,collector_id,collector_version,command_id,key,resource,kind,text_value,integer_value,number_value,unit,transport,quality,observed_at,received_at,ttl_seconds) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, r.ID, o.AssetID, o.EndpointID, o.ProfileID, o.ProfileVersion, o.CollectorID, o.CollectorVersion, o.CommandID, o.Key, o.Resource, o.Value.Kind, text, integer, number, o.Unit, o.Transport, o.Quality, o.ObservedAt, o.ReceivedAt, ttl)
 			if e != nil {
-				return ErrUnavailable
+				return persistenceError("observation_insert", e)
 			}
 		}
 	}
 	tag, e := tx.Exec(ctx, `UPDATE collection_run SET ended_at=$1,state=$2,category=$3,success_count=$4,failure_count=$5 WHERE id=$6 AND state='running'`, r.EndedAt, r.State, r.Category, r.SuccessCount, r.FailureCount, r.ID)
 	if e != nil || tag.RowsAffected() != 1 {
-		return ErrUnavailable
+		return persistenceError("terminal_run", e)
 	}
 	// Capture the complete immutable payload while it is still protected by this
 	// transaction. A lost COMMIT response is not evidence that the write failed.
 	receipt, e := collectionReceipt(ctx, tx, r)
 	if e != nil {
-		return ErrUnavailable
+		return persistenceError("receipt", e)
 	}
 	return s.commitCollection(ctx, tx, r, receipt)
 }
@@ -198,7 +238,7 @@ const collectionReceiptSQL = `SELECT encode(sha256(convert_to(jsonb_build_array(
  )::text,'UTF8')),'hex') FROM collection_run r
  WHERE r.id=$1 AND r.principal_id=$2 AND r.asset_id=$3 AND r.endpoint_id=$4 AND r.profile_id=$5 AND r.profile_revision=$6
  AND r.endpoint_revision=$7 AND r.request_source=$8 AND coalesce(r.schedule_id::text,'')=$9 AND coalesce(r.schedule_revision,0)=$10
- AND r.state IN ('completed','partial','failed')`
+ AND r.state IN ('completed','partial','failed','cancelled')`
 
 func collectionReceipt(ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -209,7 +249,8 @@ func collectionReceipt(ctx context.Context, q interface {
 }
 
 func (s *Store) commitCollection(ctx context.Context, tx pgx.Tx, r collection.Run, receipt string) error {
-	if tx.Commit(ctx) == nil {
+	commitErr := tx.Commit(ctx)
+	if commitErr == nil {
 		return nil
 	}
 	// Only recover acknowledgement of this exact payload, never replay writes or
@@ -218,7 +259,7 @@ func (s *Store) commitCollection(ctx context.Context, tx pgx.Tx, r collection.Ru
 	defer cancel()
 	actual, e := collectionReceipt(verify, s.pool, r)
 	if e != nil || len(receipt) != 64 || actual != receipt {
-		return ErrUnavailable
+		return persistenceError("commit_acknowledgement", errors.Join(commitErr, e))
 	}
 	return nil
 }

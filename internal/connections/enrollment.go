@@ -154,7 +154,7 @@ func (s *Service) live(ctx context.Context, r Record) (sshcli.Credential, error)
 		return c, ErrCredential
 	}
 	if err = sshcli.ValidateInventoryProfile(ctx, s.Inventory, r.Profile(c), r.Target()); err != nil {
-		return c, ErrConflict
+		return c, err
 	}
 	return c, nil
 }
@@ -229,7 +229,10 @@ func (s *Service) ApproveAMI(ctx context.Context, p workspace.Principal, t sshcl
 	profile, err := s.approve(ctx, p, t, sshcli.ExecutePermission, false)
 	if err == nil {
 		r, e := s.Repository.Enrollment(ctx, t.EndpointID, t.ProfileID)
-		if e != nil || r.State != "connection_verified" || r.Target() != t {
+		if e != nil {
+			return sshcli.Profile{}, sshcli.LocalFailure(e)
+		}
+		if r.State != "connection_verified" || r.Target() != t {
 			return sshcli.Profile{}, workspace.ErrDenied
 		}
 	}
@@ -242,26 +245,34 @@ func (s *Service) approve(ctx context.Context, p workspace.Principal, t sshcli.T
 	}
 	r, err := s.Repository.Enrollment(ctx, t.EndpointID, t.ProfileID)
 	if err != nil {
-		return sshcli.Profile{}, workspace.ErrDenied
+		if errors.Is(err, inventory.ErrNotFound) {
+			return sshcli.Profile{}, &sshcli.Failure{Category: sshcli.PermissionDenied, Cause: err}
+		}
+		return sshcli.Profile{}, sshcli.LocalFailure(err)
 	}
 	if _, blocked := s.quarantined.Load(t.ProfileID); blocked {
-		return sshcli.Profile{}, ErrState
+		return sshcli.Profile{}, &sshcli.Failure{Category: sshcli.PermissionDenied, Cause: ErrState}
 	}
-	if finite && s.guardAllowed(ctx, t) != nil {
-		return sshcli.Profile{}, ErrState
+	if finite {
+		if err := s.guardAllowed(ctx, t); err != nil {
+			return sshcli.Profile{}, sshcli.LocalFailure(err)
+		}
 	}
 	if r.Target() != t || s.allowed(p, permission, r) != nil {
 		return sshcli.Profile{}, workspace.ErrDenied
 	}
 	if r.State != "pending_host_key_verification" && r.State != "connection_verified" {
-		return sshcli.Profile{}, ErrState
+		return sshcli.Profile{}, &sshcli.Failure{Category: sshcli.PermissionDenied, Cause: ErrState}
 	}
 	if permission == sshcli.ExecutePermission && (r.Details.ApprovedKey == "" || r.Details.ApprovedFingerprint == "") {
-		return sshcli.Profile{}, ErrState
+		return sshcli.Profile{}, &sshcli.Failure{Category: sshcli.PermissionDenied, Cause: ErrState}
 	}
 	c, err := s.live(ctx, r)
 	if err != nil {
-		return sshcli.Profile{}, err
+		if errors.Is(err, ErrCredential) {
+			return sshcli.Profile{}, &sshcli.Failure{Category: sshcli.Category("credential_unavailable"), Cause: err}
+		}
+		return sshcli.Profile{}, sshcli.LocalFailure(err)
 	}
 	return r.Profile(c), nil
 }

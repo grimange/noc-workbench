@@ -148,15 +148,15 @@ func TestIntegrationRuntimeServices(t *testing.T) {
 	exec.state = "running"
 	_, e = svc.Collect(req, p, target)
 	must(e)
-	// Unrelated Linux samples cannot hide the latest runtime attempt.
+	// Aggregate attempt follows the latest server run; successful service evidence stays separate.
 	before, e := db.RuntimeAttempt(ctx, p, h)
 	must(e)
 	_, e = collection.NewService(historyExecutor{}, linux.Registry(), db).Collect(ctx, p, target)
 	must(e)
 	after, e := db.RuntimeAttempt(ctx, p, h)
 	must(e)
-	if before.ID != after.ID {
-		t.Fatal("unrelated attempt hid runtime")
+	if before.ID == after.ID {
+		t.Fatal("aggregate attempt did not advance")
 	}
 	in, e := db.EvaluationEvidence(ctx, p, h, time.Now().UTC())
 	must(e)

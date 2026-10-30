@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"noc-workbench/internal/transport/sshcli"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -109,6 +111,10 @@ func TestIntegrationGuardCommitAcknowledgement(t *testing.T) {
 			t.Fatal(e)
 		}
 		got, e := db.commitSSHGuard(ctx, lostCommit{Tx: tx, commit: commit}, target.ProfileID, token)
+		var failure *sshcli.Failure
+		if !errors.As(e, &failure) || failure.Category != sshcli.GuardUncertain || !errors.Is(e, context.DeadlineExceeded) {
+			t.Fatal("commit cause misclassified", e)
+		}
 		if e == nil || got != "" {
 			t.Fatal("uncertain acquisition authorized a child")
 		}

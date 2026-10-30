@@ -20,7 +20,7 @@ func scanEnrollment(row pgx.Row) (r connections.Record, err error) {
 		return r, inventory.ErrNotFound
 	}
 	if err != nil {
-		return r, ErrUnavailable
+		return r, errors.Join(ErrUnavailable, err)
 	}
 	if json.Unmarshal(raw, &r.Details) != nil {
 		return r, ErrUnavailable
@@ -63,16 +63,28 @@ func lockEnrollmentOwners(ctx context.Context, tx pgx.Tx, r connections.Record) 
 	var port int
 	var endpointTime time.Time
 	if err := tx.QueryRow(ctx, `SELECT status FROM customer WHERE id=$1 FOR SHARE`, r.CustomerID).Scan(&c); err != nil {
-		return connections.ErrConflict
+		if errors.Is(err, pgx.ErrNoRows) {
+			return connections.ErrConflict
+		}
+		return errors.Join(ErrUnavailable, err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT status FROM environment WHERE id=$1 AND customer_id=$2 FOR SHARE`, r.EnvironmentID, r.CustomerID).Scan(&e); err != nil {
-		return connections.ErrConflict
+		if errors.Is(err, pgx.ErrNoRows) {
+			return connections.ErrConflict
+		}
+		return errors.Join(ErrUnavailable, err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT lifecycle FROM asset WHERE id=$1 AND environment_id=$2 FOR SHARE`, r.AssetID, r.EnvironmentID).Scan(&a); err != nil {
-		return connections.ErrConflict
+		if errors.Is(err, pgx.ErrNoRows) {
+			return connections.ErrConflict
+		}
+		return errors.Join(ErrUnavailable, err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT status,protocol,host,port,updated_at FROM asset_endpoint WHERE id=$1 AND environment_id=$2 AND asset_id=$3 FOR SHARE`, r.EndpointID, r.EnvironmentID, r.AssetID).Scan(&ep, &protocol, &host, &port, &endpointTime); err != nil {
-		return connections.ErrConflict
+		if errors.Is(err, pgx.ErrNoRows) {
+			return connections.ErrConflict
+		}
+		return errors.Join(ErrUnavailable, err)
 	}
 	// Disabled/rejected can always be recorded to revoke access after archival.
 	if r.State == "disabled" || r.State == "rejected" {

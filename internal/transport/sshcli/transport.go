@@ -44,12 +44,39 @@ const (
 	// GuardUnavailable is local durable execution bookkeeping failure, not
 	// evidence of remote network, authentication or application failure.
 	GuardUnavailable Category = "ssh_guard_unavailable"
+	StorageFailure   Category = "local_storage_failure"
+	GuardConflict    Category = "ssh_guard_conflict"
+	GuardUncertain   Category = "ssh_guard_uncertain"
 )
 
-type Failure struct{ Category Category }
+type Failure struct {
+	Category Category
+	Cause    error
+}
 
 func (e *Failure) Error() string { return "SSH transport: " + string(e.Category) }
-func fail(c Category) error      { return &Failure{c} }
+func (e *Failure) Unwrap() error { return e.Cause }
+func fail(c Category) error      { return &Failure{Category: c} }
+
+// LocalFailure retains machine-readable causes without exposing storage or
+// credential details in the public diagnostic. Unknown local errors are never
+// evidence that a remote server denied authorization.
+func LocalFailure(err error) error {
+	var f *Failure
+	if errors.As(err, &f) {
+		return err
+	}
+	c := StorageFailure
+	switch {
+	case errors.Is(err, context.Canceled):
+		c = Cancelled
+	case errors.Is(err, context.DeadlineExceeded):
+		c = ExecutionTimeout
+	case errors.Is(err, workspace.ErrDenied):
+		c = PermissionDenied
+	}
+	return &Failure{Category: c, Cause: err}
+}
 
 type Target struct {
 	AssetID, EndpointID, ProfileID string
@@ -306,8 +333,8 @@ func (e *Executor) Execute(ctx context.Context, actor workspace.Principal, t Tar
 	}
 	defer release()
 	if check, ok := ctx.Value(executionCheckKey{}).(func(context.Context) error); ok {
-		if check(ctx) != nil {
-			return r, fail(PermissionDenied)
+		if er := check(ctx); er != nil {
+			return r, LocalFailure(er)
 		}
 	}
 	p, er := e.approval.Approve(ctx, actor, t, ProfileUse)
@@ -315,13 +342,16 @@ func (e *Executor) Execute(ctx context.Context, actor workspace.Principal, t Tar
 		if ctx.Err() != nil {
 			return r, contextFailure(ctx)
 		}
-		return r, fail(PermissionDenied)
+		return r, LocalFailure(er)
 	}
 	q, er := e.approval.Approve(ctx, actor, t, ExecutePermission)
-	if er != nil || p != q {
+	if er != nil {
 		if ctx.Err() != nil {
 			return r, contextFailure(ctx)
 		}
+		return r, LocalFailure(er)
+	}
+	if p != q {
 		return r, fail(PermissionDenied)
 	}
 	if er = validProfile(p, t); er != nil {
@@ -368,4 +398,13 @@ func (e *Executor) Execute(ctx context.Context, actor workspace.Principal, t Tar
 	}
 	r.Stdout, r.Stderr, r.ExitCode, err = runInput(ctx, e.executable, args, min(spec.limit, e.limits.OutputBytes), input)
 	return r, err
+}
+
+// LocalResult rejects execution while preserving a safe category and its cause.
+func LocalResult(err error) (Result, error) {
+	err = LocalFailure(err)
+	var f *Failure
+	errors.As(err, &f)
+	now := time.Now().UTC()
+	return Result{StartedAt: now, EndedAt: now, Category: f.Category}, err
 }

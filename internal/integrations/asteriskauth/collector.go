@@ -43,7 +43,11 @@ func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 	if e.Repository == nil {
 		return deny()
 	}
-	helper := e.Repository.IntegrationAllowed(ctx, p, t, "asterisk_auth_helper") == nil
+	helperErr := e.Repository.IntegrationAllowed(ctx, p, t, "asterisk_auth_helper")
+	if helperErr != nil && !errors.Is(helperErr, workspace.ErrDenied) {
+		return sshcli.LocalResult(helperErr)
+	}
+	helper := helperErr == nil
 	if id == "asterisk.auth.helper.v1" && !helper {
 		return deny()
 	}
@@ -58,12 +62,12 @@ func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 		}
 		return nil
 	}
-	if check(ctx) != nil {
-		return deny()
+	if err := check(ctx); err != nil {
+		return sshcli.LocalResult(err)
 	}
 	cursors, err := e.Repository.AuthCursors(ctx, p, t)
 	if err != nil {
-		return deny()
+		return sshcli.LocalResult(err)
 	}
 	if helper {
 		id = "asterisk.auth.helper.v1"

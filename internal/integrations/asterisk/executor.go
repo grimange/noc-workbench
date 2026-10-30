@@ -2,11 +2,11 @@ package asterisk
 
 import (
 	"context"
+	"errors"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 	"strings"
-	"time"
 )
 
 // Authority is the existing application's scoped, durable opt-in boundary.
@@ -21,16 +21,19 @@ type Executor struct {
 
 func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.Target, id string) (sshcli.Result, error) {
 	if strings.HasPrefix(id, "asterisk.") && id != "asterisk.auth.v1" && id != "asterisk.auth.helper.v1" {
-		deny := func() (sshcli.Result, error) {
-			now := time.Now().UTC()
-			return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
+		if e.Authority == nil {
+			return sshcli.LocalResult(workspace.ErrDenied)
 		}
-		if e.Authority == nil || e.Authority.IntegrationAllowed(ctx, p, t, "asterisk") != nil {
-			return deny()
+		if err := e.Authority.IntegrationAllowed(ctx, p, t, "asterisk"); err != nil {
+			return sshcli.LocalResult(err)
 		}
 		helper := strings.Contains(id, ".helper.")
 		if id == "asterisk.identity.v1" || id == "asterisk.registrations.v1" || id == "asterisk.activity.v1" || id == "asterisk.media.v1" {
-			helper = e.Authority.IntegrationAllowed(ctx, p, t, "asterisk_helper") == nil
+			helperErr := e.Authority.IntegrationAllowed(ctx, p, t, "asterisk_helper")
+			if helperErr != nil && !errors.Is(helperErr, workspace.ErrDenied) {
+				return sshcli.LocalResult(helperErr)
+			}
+			helper = helperErr == nil
 			if helper {
 				id = strings.TrimSuffix(id, ".v1") + ".helper.v1"
 			}
@@ -57,8 +60,8 @@ func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 			}
 			return nil
 		}
-		if check(ctx) != nil {
-			return deny()
+		if err := check(ctx); err != nil {
+			return sshcli.LocalResult(err)
 		}
 		ctx = sshcli.WithExecutionCheck(ctx, check)
 	}

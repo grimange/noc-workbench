@@ -2,7 +2,8 @@ package postgres
 
 import (
 	"context"
-	"noc-workbench/internal/connections"
+	"errors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
 	"time"
@@ -17,11 +18,11 @@ func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Ta
 	// A failed RETURNING must not autocommit an unacknowledged guard. The
 	// remote deadline controls acquisition; persistence has its own bounded budget.
 	if ctx.Err() != nil {
-		return "", connections.ErrState
+		return "", sshcli.LocalFailure(ctx.Err())
 	}
 	tx, e := s.pool.Begin(ctx)
 	if e != nil {
-		return "", connections.ErrState
+		return "", sshcli.LocalFailure(e)
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
@@ -31,10 +32,17 @@ func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Ta
 	var token string
 	e = tx.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) SELECT id,$1,revision FROM connection_profile WHERE id=$2 AND endpoint_id=$3 AND asset_id=$4 AND revision=$5 AND state IN ('connection_verified','pending_host_key_verification') RETURNING token::text`, p.ID, t.ProfileID, t.EndpointID, t.AssetID, t.ProfileVersion).Scan(&token)
 	if e != nil {
-		return "", connections.ErrState
+		var pe *pgconn.PgError
+		if errors.As(e, &pe) && pe.Code == "23505" {
+			return "", &sshcli.Failure{Category: sshcli.GuardConflict, Cause: e}
+		}
+		if errors.Is(e, pgx.ErrNoRows) {
+			return "", &sshcli.Failure{Category: sshcli.PermissionDenied, Cause: e}
+		}
+		return "", sshcli.LocalFailure(e)
 	}
 	if ctx.Err() != nil {
-		return "", connections.ErrState
+		return "", sshcli.LocalFailure(ctx.Err())
 	}
 	save, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
@@ -42,7 +50,8 @@ func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Ta
 }
 
 func (s *Store) commitSSHGuard(ctx context.Context, tx pgx.Tx, profile, token string) (string, error) {
-	if tx.Commit(ctx) == nil {
+	commitErr := tx.Commit(ctx)
+	if commitErr == nil {
 		return token, nil
 	}
 	// Contact has not started. Retire only this acquisition's known token with
@@ -53,13 +62,16 @@ func (s *Store) commitSSHGuard(ctx context.Context, tx pgx.Tx, profile, token st
 	if token != "" {
 		_ = s.EndSSH(cleanup, profile, token)
 	}
-	return "", connections.ErrState
+	return "", &sshcli.Failure{Category: sshcli.GuardUncertain, Cause: commitErr}
 }
 func (s *Store) SSHAllowed(ctx context.Context, t sshcli.Target, token string) error {
 	var allowed bool
 	e := s.pool.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=$1 AND (token::text<>$2 OR revision<>$3))`, t.ProfileID, token, t.ProfileVersion).Scan(&allowed)
-	if e != nil || !allowed {
-		return connections.ErrState
+	if e != nil {
+		return sshcli.LocalFailure(e)
+	}
+	if !allowed {
+		return &sshcli.Failure{Category: sshcli.GuardConflict}
 	}
 	return nil
 }
@@ -69,7 +81,7 @@ func (s *Store) SSHAllowed(ctx context.Context, t sshcli.Target, token string) e
 func (s *Store) EndSSH(ctx context.Context, id, token string) error {
 	_, e := s.pool.Exec(ctx, `DELETE FROM ssh_execution_guard g WHERE profile_id=$1 AND (token::text=$2 OR ($2='' AND EXISTS(SELECT 1 FROM connection_profile p WHERE p.id=g.profile_id AND p.state='pending_authorization' AND coalesce(p.details->>'ApprovedKey','')='')))`, id, token)
 	if e != nil {
-		return ErrUnavailable
+		return sshcli.LocalFailure(e)
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"github.com/jackc/pgx/v5"
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/connections"
@@ -23,6 +24,9 @@ func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Pri
 	}
 	var yes bool
 	e := q.QueryRow(ctx, `SELECT true FROM collection_integration i JOIN connection_profile p ON p.id=i.profile_id WHERE i.profile_id=$1 AND i.asset_id=$2 AND i.endpoint_id=$3 AND i.integration=$4 AND i.enabled AND i.profile_revision=$5 AND p.revision=$5 AND p.state='connection_verified' FOR SHARE OF i,p`, t.ProfileID, t.AssetID, t.EndpointID, name, t.ProfileVersion).Scan(&yes)
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return sshcli.LocalFailure(e)
+	}
 	if e != nil || !yes {
 		return workspace.ErrDenied
 	}

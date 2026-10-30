@@ -85,7 +85,7 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 			if ctx.Err() != nil {
 				return Run{}, ctx.Err()
 			}
-			return Run{}, ErrPersistence
+			return Run{}, errors.Join(ErrPersistence, e)
 		}
 	}
 	var release func()
@@ -100,11 +100,11 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 		if m, ok := s.repository.(interface {
 			MaintainCollections(context.Context, time.Time, int, int) error
 		}); ok {
-			if m.MaintainCollections(ctx, time.Now().UTC(), s.RunDays, s.SampleDays) != nil {
+			if e := m.MaintainCollections(ctx, time.Now().UTC(), s.RunDays, s.SampleDays); e != nil {
 				if ctx.Err() != nil {
 					return Run{}, ctx.Err()
 				}
-				return Run{}, ErrPersistence
+				return Run{}, errors.Join(ErrPersistence, e)
 			}
 		}
 		var err error
@@ -113,7 +113,7 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 			if ctx.Err() != nil {
 				return Run{}, ctx.Err()
 			}
-			return Run{}, ErrPersistence
+			return Run{}, errors.Join(ErrPersistence, err)
 		}
 	}
 	run, err := s.registry.Collect(ctx, s.executor, p, t, ids)
@@ -130,8 +130,8 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 		run.EndpointRevision = durable.EndpointRevision
 		saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer saveCancel()
-		if s.repository.FinishCollection(saveCtx, p, run, s.TTLSeconds) != nil {
-			return run, ErrPersistence
+		if e := s.repository.FinishCollection(saveCtx, p, run, s.TTLSeconds); e != nil {
+			return run, errors.Join(ErrPersistence, e)
 		}
 		return run, nil
 	}

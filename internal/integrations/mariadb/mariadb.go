@@ -10,7 +10,6 @@ import (
 	"io"
 	"regexp"
 	"sort"
-	"time"
 
 	"noc-workbench/internal/collection"
 	"noc-workbench/internal/transport/sshcli"
@@ -267,9 +266,8 @@ func (e Executor) Execute(ctx context.Context, p workspace.Principal, t sshcli.T
 			}
 			return e.Authority.IntegrationAllowed(c, p, t, "mariadb")
 		}
-		if check(ctx) != nil {
-			now := time.Now().UTC()
-			return sshcli.Result{StartedAt: now, EndedAt: now, Category: sshcli.PermissionDenied}, &sshcli.Failure{Category: sshcli.PermissionDenied}
+		if err := check(ctx); err != nil {
+			return sshcli.LocalResult(err)
 		}
 		ctx = sshcli.WithExecutionCheck(ctx, check)
 	}

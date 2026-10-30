@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	ami "noc-workbench/internal/integrations/asteriskami"
 	"noc-workbench/internal/scheduler"
 	"noc-workbench/internal/workspace"
@@ -35,12 +36,40 @@ func TestIntegrationAMILifecyclePersistenceIsolation(t *testing.T) {
 		t.Fatal("cross customer grant")
 	}
 	must(db.SetAMIGrant(ctx, actor, h, target, "synthetic", digest, true))
+	// Enrichment must not retain the grant result's connection while querying
+	// the pool again; this used to deadlock even one view with MaxConns=1.
+	config := db.pool.Config()
+	config.MaxConns = 1
+	pool, poolErr := pgxpool.NewWithConfig(ctx, config)
+	must(poolErr)
+	defer pool.Close()
+	single := &Store{pool: pool}
+	bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, poolErr = single.AMIBindings(bounded, actor)
+	must(poolErr)
+	_, poolErr = single.AMIView(bounded, actor, h, target, time.Now().UTC())
+	must(poolErr)
 	bindings, e := db.AMIBindings(ctx, actor)
 	must(e)
 	if len(bindings) != 1 || !bindings[0].Eligible || bindings[0].Paused {
 		t.Fatal(bindings)
 	}
 	b := bindings[0]
+	_, e = db.pool.Exec(ctx, `UPDATE collection_schedule SET enabled=false WHERE profile_id=$1`, target.ProfileID)
+	must(e)
+	disabled, e := db.AMIBindings(ctx, actor)
+	must(e)
+	if disabled[0].Eligible || disabled[0].BlockReason != "monitoring_disabled" {
+		t.Fatal(disabled)
+	}
+	disabledView, e := db.AMIView(ctx, actor, h, target, time.Now().UTC())
+	must(e)
+	if !disabledView.Authorized || disabledView.State != "disconnected" || disabledView.Current {
+		t.Fatal(disabledView)
+	}
+	_, e = db.pool.Exec(ctx, `UPDATE collection_schedule SET enabled=true WHERE profile_id=$1`, target.ProfileID)
+	must(e)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	id, e := db.BeginAMISession(ctx, b, now)
 	must(e)

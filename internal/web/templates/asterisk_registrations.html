@@ -1,12 +1,29 @@
 {{define "asterisk-registrations"}}
 <section class="panel detail-section" id="asterisk-monitoring" data-console-tab="services" data-console-live="asterisk-registrations">
 <h2>Asterisk monitoring</h2>
-<p><strong>{{.Server.Asterisk.Status}}</strong></p>
-{{if .Server.Asterisk.AttemptAt.IsZero}}{{else}}<p>Last attempt: {{localTime .Server.Asterisk.AttemptAt}} · {{.Server.Asterisk.Outcome}}{{with .Server.Asterisk.Diagnostic}} · {{.}}{{end}}</p>{{end}}
-{{if not .Server.Asterisk.Authorized}}<p><a href="/servers/{{.Server.Detail.ID}}/connection">Authorize Standard Server Monitoring</a> for this verified connection. Remote Asterisk observation access is also required.</p>{{end}}
-{{template "asterisk-ami" .}}
-{{template "asterisk-activity" .}}
-{{template "asterisk-media" .}}
+{{if not .Server.Asterisk.Authorized}}<p>Asterisk monitoring unavailable. Configure <a href="/servers/{{.Server.Detail.ID}}/connection">Standard Server Monitoring</a>.</p>{{end}}
+{{with .Server.Asterisk.Overview}}
+<dl class="service-indicators">{{range .Indicators}}<div><dt>{{.Label}}</dt><dd>{{.Value}}</dd><p>{{.Detail}}</p></div>{{end}}</dl>
+{{if .Issues}}<div class="service-issues" aria-label="Asterisk attention"><h3>Requires investigation</h3><ul>{{range .Issues}}<li>{{.}}</li>{{end}}</ul>{{if .MoreIssues}}<p>{{.MoreIssues}} additional issues · inspect the sections below.</p>{{end}}</div>{{end}}
+{{end}}
+<p class="service-secondary">{{if .Server.Asterisk.Activity.Current}}MeetMe: {{if eq .Server.Asterisk.Activity.Meetme "supported"}}{{.Server.Asterisk.Activity.MeetmeCount}} active{{else}}Unsupported{{end}} · ConfBridge: {{if eq .Server.Asterisk.Activity.Confbridge "supported"}}{{.Server.Asterisk.Activity.ConfbridgeCount}} active{{else}}Unsupported{{end}}{{else}}Conference counts unverified{{end}} · {{.Server.Asterisk.MediaSummary}}</p>
+<div class="service-investigation">
+<details id="investigate-registrations"><summary>Registrations · snapshots and reachability</summary>
+<label>Find endpoint, contact or registration <input type="search" data-registration-search maxlength="128"></label>
+<p class="muted">Snapshot counts describe observed objects. Contact presence, registration validity and reachability are separate signals; polling does not record every registration attempt.</p>
+{{range .Server.Asterisk.Families}}
+<details data-disclosure-key="registration-family-{{.Name}}"><summary>{{.Name}} — {{.State}}{{if eq .Snapshot.Status "supported"}} · {{.Snapshot.Count}} observed{{end}}</summary>
+{{if .Evidence.ID}}<p>{{if not .Current}}Historical snapshot · {{end}}{{localTime .Evidence.ObservedAt}} · {{.Freshness}}</p>{{end}}
+{{if eq .Snapshot.Status "supported"}}
+<div class="table-scroll"><table data-registration-table><thead><tr><th scope="col">Endpoint / registration</th><th scope="col">Technology</th><th scope="col">AoR / address</th><th scope="col">{{if .Current}}Registration evidence{{else}}Last observed evidence{{end}}</th><th scope="col">{{if .Current}}Reachability{{else}}Last observed reachability{{end}}</th></tr></thead><tbody>
+{{range .Snapshot.Rows}}<tr><td>{{.ID}}</td><td>{{.Technology}}</td><td>{{with .AOR}}{{.}}<br>{{end}}{{with .Address}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Registration}}</td><td>{{.Reachability}}{{with .RTT}} · {{.}} ms{{end}}</td></tr>{{else}}<tr><td colspan="5">Successful snapshot — no objects reported.</td></tr>{{end}}
+</tbody></table></div>{{else if eq .State "Unsupported"}}<p>This CLI command is unavailable on the observed server.</p>{{else}}<p>No successful supported snapshot available.</p>{{end}}
+{{if .Changes}}<details data-disclosure-key="registration-changes-{{.Name}}"><summary>Changes between polling snapshots</summary><p>{{localTime .PreviousAt}} → {{localTime .Evidence.ObservedAt}}. Exact remote event time is unknown.</p><ul>{{range .Changes}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+{{if .Evidence.ID}}<details data-disclosure-key="registration-evidence-{{.Name}}"><summary>Technical registration evidence</summary><p>{{.Command}} · Asterisk {{.Snapshot.Version}} · {{.Evidence.CollectorID}} v{{.Evidence.CollectorVersion}} · {{.Evidence.CommandID}}</p><p>Observation {{.Evidence.ID}} · run {{.Evidence.RunID}} · profile {{.Evidence.ProfileID}} revision {{.Evidence.ProfileVersion}}</p><p>Observed UTC {{utcTime .Evidence.ObservedAt}} · received UTC {{utcTime .Evidence.ReceivedAt}}</p><p>PJSIP CLI contact addresses can be truncated by Asterisk. URI parameters, authentication objects and passwords are omitted. Contact type and registration expiry are not established by these summaries.</p></details>{{end}}
+</details>
+{{end}}
+</details>
+<details id="investigate-authentication" {{if .Server.Asterisk.AuthFiltered}}open{{end}}><summary>Authentication · recent failures and observed sources</summary>
 {{with .Server.Asterisk.Auth}}
 <div class="authentication-monitoring" id="authentication-events">
 <h3>Authentication events</h3>
@@ -21,31 +38,27 @@
 <label>Account <input name="auth_account" maxlength="128" value="{{.Filter.Account}}"></label><label>Observed source IP <input name="auth_ip" maxlength="64" value="{{.Filter.IP}}"></label><button type="submit">Filter events</button>
 </form>
 <div class="table-scroll"><table><thead><tr><th>Time (PHT)</th><th>Account</th><th>Failure</th><th>Observed source IP</th><th>Count</th></tr></thead><tbody>
-{{range .Groups}}<tr><td>{{localTime .Last}}<details><summary>Event times</summary>First: {{localTime .First}}<br>Last: {{localTime .Last}}<br>First UTC: {{utcTime .First}}<br>Last UTC: {{utcTime .Last}}</details></td><td>{{with .Account}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Type}}</td><td>{{with .IP}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Count}}{{if .Repeated}} · Repeated failures (≥5 in 5 minutes){{end}}</td></tr>{{else}}<tr><td colspan="5">No supported failures in the selected observed window. Consult source coverage above.</td></tr>{{end}}
+{{range .Groups}}<tr><td>{{localTime .Last}}<details {{if and .Account .IP}}data-disclosure-key="authentication-times-{{printf "%q|%q|%q" .Account .IP .Type}}"{{end}}><summary>Event times</summary>First: {{localTime .First}}<br>Last: {{localTime .Last}}<br>First UTC: {{utcTime .First}}<br>Last UTC: {{utcTime .Last}}</details></td><td>{{with .Account}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Type}}</td><td>{{with .IP}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Count}}{{if .Repeated}} · Repeated failures (≥5 in 5 minutes){{end}}</td></tr>{{else}}<tr><td colspan="5">No supported failures in the selected observed window. Consult source coverage above.</td></tr>{{end}}
 </tbody></table></div>
-<details><summary>Individual normalized events (latest 50 in filtered window)</summary><div class="table-scroll"><table><thead><tr><th>Time</th><th>Account</th><th>Failure / reason</th><th>Observed source IP / port</th><th>Technical provenance</th></tr></thead><tbody>{{range .Events}}<tr><td>{{localTime .At}}<br>{{utcTime .At}}</td><td>{{with .Account}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Type}} · {{.Reason}}</td><td>{{with .IP}}{{.}}{{else}}Unknown{{end}} · port {{if .Port}}{{.Port}}{{else}}Unknown{{end}}</td><td>{{.Technology}} · {{.Source}} · {{.Identity}} generation {{.Generation}} byte {{.Position}} · parser {{.ParserVersion}} · ingested {{utcTime .IngestedAt}}</td></tr>{{else}}<tr><td colspan="5">No normalized events in this filtered window.</td></tr>{{end}}</tbody></table></div></details>
+<details id="asterisk_registrations-individual-normalized-events-latest-50-in-filtered-window"><summary>Individual normalized events (latest 50 in filtered window)</summary><div class="table-scroll"><table><thead><tr><th>Time</th><th>Account</th><th>Failure / reason</th><th>Observed source IP / port</th><th>Technical provenance</th></tr></thead><tbody>{{range .Events}}<tr><td>{{localTime .At}}<br>{{utcTime .At}}</td><td>{{with .Account}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Type}} · {{.Reason}}</td><td>{{with .IP}}{{.}}{{else}}Unknown{{end}} · port {{if .Port}}{{.Port}}{{else}}Unknown{{end}}</td><td>{{.Technology}} · {{.Source}} · {{.Identity}} generation {{.Generation}} byte {{.Position}} · parser {{.ParserVersion}} · ingested {{utcTime .IngestedAt}}</td></tr>{{else}}<tr><td colspan="5">No normalized events in this filtered window.</td></tr>{{end}}</tbody></table></div></details>
 {{if .Limited}}<p>First 100 groups shown. Refine filters; summary totals include all retained events in the window.</p>{{end}}
 <p class="muted">Observed source IP may identify a proxy, SBC or NAT device. Repeated failures are an operational signal, not proof of an attack or compromise. Unknown identities are kept separate. Registration snapshots do not capture every authentication attempt.</p>
-<details><summary>Technical authentication coverage</summary><p>Status {{.Status}} · source {{.Source}} · dedicated security category {{.Security}} · rejected lines {{.Rejected}} · parser v1</p><p>Inspected UTC {{utcTime .CheckedAt}}. Current means a successful complete inspection within 180 seconds. Backlog, incomplete lines and unsupported formats are not complete coverage. Yearless warning timestamps are unsupported; dedicated security event timestamps retain UTC precision.</p>{{range $source,$cursor := .Cursors}}<p>{{$source}} · identity {{$cursor.Identity}} · generation {{$cursor.Generation}} · byte offset {{$cursor.Offset}} · gap {{$cursor.Gap}}</p>{{end}}</details>
+<details id="asterisk_registrations-technical-authentication-coverage"><summary>Technical authentication coverage</summary><p>Status {{.Status}} · source {{.Source}} · dedicated security category {{.Security}} · rejected lines {{.Rejected}} · parser v1</p><p>Inspected UTC {{utcTime .CheckedAt}}. Current means a successful complete inspection within 180 seconds. Backlog, incomplete lines and unsupported formats are not complete coverage. Yearless warning timestamps are unsupported; dedicated security event timestamps retain UTC precision.</p>{{range $source,$cursor := .Cursors}}<p>{{$source}} · identity {{$cursor.Identity}} · generation {{$cursor.Generation}} · byte offset {{$cursor.Offset}} · gap {{$cursor.Gap}}</p>{{end}}</details>
 </div>
 {{end}}
-<p class="muted">Snapshot counts describe observed objects. Contact presence, registration validity and reachability are separate signals; polling does not record every registration attempt.</p>
-{{range .Server.Asterisk.Families}}
-<details {{if .Snapshot.Count}}open{{end}}><summary>{{.Name}} — {{.State}}{{if eq .Snapshot.Status "supported"}} · {{.Snapshot.Count}} observed{{end}}</summary>
-{{if .Evidence.ID}}<p>{{if not .Current}}Historical snapshot · {{end}}{{localTime .Evidence.ObservedAt}} · {{.Freshness}}</p>{{end}}
-{{if eq .Snapshot.Status "supported"}}
-<div class="table-scroll"><table><thead><tr><th scope="col">Endpoint / registration</th><th scope="col">Technology</th><th scope="col">AoR / address</th><th scope="col">{{if .Current}}Registration evidence{{else}}Last observed evidence{{end}}</th><th scope="col">{{if .Current}}Reachability{{else}}Last observed reachability{{end}}</th></tr></thead><tbody>
-{{range .Snapshot.Rows}}<tr><td>{{.ID}}</td><td>{{.Technology}}</td><td>{{with .AOR}}{{.}}<br>{{end}}{{with .Address}}{{.}}{{else}}Unknown{{end}}</td><td>{{.Registration}}</td><td>{{.Reachability}}{{with .RTT}} · {{.}} ms{{end}}</td></tr>{{else}}<tr><td colspan="5">Successful snapshot — no objects reported.</td></tr>{{end}}
-</tbody></table></div>{{else if eq .State "Unsupported"}}<p>This CLI command is unavailable on the observed server.</p>{{else}}<p>No successful supported snapshot available.</p>{{end}}
-{{if .Changes}}<details><summary>Changes between polling snapshots</summary><p>{{localTime .PreviousAt}} → {{localTime .Evidence.ObservedAt}}. Exact remote event time is unknown.</p><ul>{{range .Changes}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
-{{if .Evidence.ID}}<details><summary>Technical registration evidence</summary><p>{{.Command}} · Asterisk {{.Snapshot.Version}} · {{.Evidence.CollectorID}} v{{.Evidence.CollectorVersion}} · {{.Evidence.CommandID}}</p><p>Observation {{.Evidence.ID}} · run {{.Evidence.RunID}} · profile {{.Evidence.ProfileID}} revision {{.Evidence.ProfileVersion}}</p><p>Observed UTC {{utcTime .Evidence.ObservedAt}} · received UTC {{utcTime .Evidence.ReceivedAt}}</p><p>PJSIP CLI contact addresses can be truncated by Asterisk. URI parameters, authentication objects and passwords are omitted. Contact type and registration expiry are not established by these summaries.</p></details>{{end}}
 </details>
-{{end}}
+<details id="investigate-activity" {{if .Server.Asterisk.Activity.Query}}open{{end}}><summary>Channels and conferences</summary>{{template "asterisk-activity" .}}</details>
+<details id="investigate-media"><summary>Media quality · RTP/RTCP measurements</summary>{{template "asterisk-media" .}}</details>
+<details id="investigate-ami"><summary>AMI connection · events and technical evidence</summary>{{template "asterisk-ami" .}}</details>
+</div>
+<details id="asterisk-collection-evidence"><summary>Technical collection status</summary><p>{{.Server.Asterisk.Status}} · last registration attempt {{localTime .Server.Asterisk.AttemptAt}} · {{.Server.Asterisk.Outcome}} · {{.Server.Asterisk.Diagnostic}}</p></details>
+<details id="asterisk-administration"><summary>Advanced monitoring administration</summary>
 {{if .Server.Asterisk.Authorized}}
-<details><summary>Verify and schedule registration snapshots</summary><p>Reuses the existing monitoring grant. Verifies supported capabilities before adding snapshots to the existing 60-second profile. Maintenance controls remain authoritative.</p>
+<details id="asterisk_registrations-verify-and-schedule-registration-snapshots"><summary>Verify and schedule registration snapshots</summary><p>Reuses the existing monitoring grant. Verifies supported capabilities before adding snapshots to the existing 60-second profile. Maintenance controls remain authoritative.</p>
 {{range .Enrollment.Records}}{{if eq .State "connection_verified"}}
 <form method="post" action="/servers/{{$.Server.Detail.ID}}/asterisk"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="profile" value="{{.ID}}"><input type="hidden" name="endpoint" value="{{.EndpointID}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="schedule_revision" value="{{$.Server.Runtime.Profile.Revision}}"><input type="hidden" name="authorize" value="yes"><button type="submit">Verify and schedule snapshots</button></form>
 {{end}}{{end}}
 </details>{{end}}
+</details>
 </section>
 {{end}}

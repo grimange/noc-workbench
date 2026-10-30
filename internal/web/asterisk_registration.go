@@ -40,6 +40,8 @@ type asteriskRegistrationData struct {
 	MediaCLI                              ast.CLIStatsView
 	Media                                 []ami.MediaRecord
 	MediaAuthorized                       bool
+	AuthFiltered                          bool
+	ChannelCount                          int
 	MediaWithCurrent, MediaWithoutCurrent int
 }
 
@@ -172,6 +174,7 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 	}
 	d := registrationView(in, out, rt.Profile, allowed, rt.Paused, history)
 	d.Auth = auth.View{Status: "not_authorized"}
+	d.AuthFiltered = r.URL.Query().Has("auth_window") || r.URL.Query().Has("auth_type") || r.URL.Query().Has("auth_account") || r.URL.Query().Has("auth_ip")
 	if repo, ok := s.store.(interface {
 		AuthEvents(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, auth.Filter, time.Time) (auth.View, error)
 	}); ok && rt.Profile.Target.ProfileID != "" {
@@ -233,6 +236,7 @@ func (s *Server) serverAsteriskData(r *http.Request, v workspace.ServerDetail, i
 			return d, workspace.ErrDenied
 		}
 		d.Activity.Query = query
+		d.ChannelCount = len(d.Activity.Channels)
 		var channels []activity.Channel
 		for i := range d.Activity.Channels {
 			c := &d.Activity.Channels[i]

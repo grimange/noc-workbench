@@ -57,6 +57,10 @@ if (inventoryFile) inventoryFile.addEventListener('change', async () => {
     links.forEach(a => { if (a.dataset.tabLink === selected) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
     document.querySelectorAll('[data-console-tab]').forEach(p => { p.hidden = p.dataset.consoleTab !== selected; });
   }
+  function filterRegistrations() {
+    const q=document.querySelector("[data-registration-search]")?.value.trim().toLowerCase() || "";
+    document.querySelectorAll("[data-registration-table] tbody tr").forEach(row=>{row.hidden=!!q&&!row.textContent.toLowerCase().includes(q);});
+  }
   function filterUnits() {
     const table = document.querySelector('[data-unit-table]'); if (!table) return;
     const q = document.querySelector('[data-unit-search]').value.trim().toLowerCase();
@@ -70,8 +74,8 @@ if (inventoryFile) inventoryFile.addEventListener('change', async () => {
     document.querySelector('[data-unit-count]').textContent = count + ' matching units';
   }
   window.addEventListener('hashchange', sections);
-  document.addEventListener('console:updated', () => { sections(); filterUnits(); document.querySelectorAll('[data-sortable] th[aria-sort]').forEach(th => sortProcesses(th.querySelector('[data-sort]'), th.getAttribute('aria-sort') === 'descending')); limitProcesses(); });
-  document.addEventListener('input', e => { if (e.target.matches('[data-unit-search]')) filterUnits(); });
+  document.addEventListener('console:updated', () => { sections(); filterUnits(); filterRegistrations(); document.querySelectorAll('[data-sortable] th[aria-sort]').forEach(th => sortProcesses(th.querySelector('[data-sort]'), th.getAttribute('aria-sort') === 'descending')); limitProcesses(); });
+  document.addEventListener('input', e => { if (e.target.matches('[data-unit-search]')) filterUnits(); if(e.target.matches('[data-registration-search]')) filterRegistrations(); });
   document.addEventListener('change', e => { if (e.target.matches('[data-unit-state]')) filterUnits(); });
   function limitProcesses() { document.querySelectorAll('[data-process-table]').forEach(table => { const expanded = document.querySelector('[data-process-expand]')?.getAttribute('aria-expanded') === 'true'; [...table.tBodies[0].rows].forEach((row,i) => row.hidden = !expanded && i >= 5); }); }
   document.addEventListener('click', e => {
@@ -92,5 +96,5 @@ if (inventoryFile) inventoryFile.addEventListener('change', async () => {
     button.closest('th').setAttribute('aria-sort', desc ? 'descending' : 'ascending');
     rows.forEach(row => table.tBodies[0].append(row));limitProcesses();
   }
-  sections(); filterUnits();limitProcesses();
+  sections(); filterUnits(); filterRegistrations();limitProcesses();
 })();

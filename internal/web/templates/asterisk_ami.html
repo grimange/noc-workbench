@@ -6,23 +6,25 @@
 {{if not .LastConnectedAt.IsZero}}<p>Last successful connection: {{localTime .LastConnectedAt}}{{if not .LastEventAt.IsZero}} · Most recent supported event: {{localTime .LastEventAt}}{{end}}</p>{{end}}
 {{if .Current}}<p>Live subscription active independently of browser sessions. {{if .Session.Gap}}Coverage incomplete · {{.Session.Dropped}} events dropped in this session.{{else}}No known gaps within this connected session so far.{{end}}</p>{{else}}<p>Live coverage is unavailable or interrupted. Retained events do not establish current registration state.</p>{{end}}
 <p class="muted">Coverage starts at the successful connection and ends on disconnect. Earlier events cannot be replayed; SSH snapshots retain their separate polling history. Only selected system and explicitly authorized call events are retained.</p>
-<details {{if .Events}}open{{end}}><summary>Recent normalized AMI events (latest 30)</summary>
+<details id="asterisk_ami-recent-normalized-ami-events-latest-30"><summary>Recent normalized AMI events (latest 30)</summary>
 <div class="table-scroll"><table><thead><tr><th>Receipt time (PHT)</th><th>Event</th><th>Endpoint / account</th><th>Reported state</th><th>Observed address</th></tr></thead><tbody>
 {{range .Events}}<tr><td>{{localTime .ReceivedAt}}</td><td>{{.Name}}</td><td>{{with .Endpoint}}{{.}}{{else}}Unknown{{end}}{{with .AOR}} · AoR {{.}}{{end}}</td><td>{{with .State}}{{.}}{{else}}Unknown{{end}}{{if .RTT}} · {{.RTT}} ms{{end}}</td><td>{{with .Address}}{{.}}{{else}}Unknown{{end}}</td></tr>{{else}}<tr><td colspan="5">No supported live events have been retained. An idle subscription is valid; event-family availability requires an actual emitted event.</td></tr>{{end}}
 </tbody></table></div></details>
-<details><summary>Technical AMI evidence and coverage</summary>
+<details id="asterisk_ami-technical-ami-evidence-and-coverage"><summary>Technical AMI evidence and coverage</summary>
 <p>Session {{.Session.ID}} · state {{.Session.State}} · parser v1 · source restricted SSH stdio → loopback AMI. Connected UTC {{utcTime .Session.ConnectedAt}} · last session update UTC {{utcTime .Session.UpdatedAt}}.</p>
 <p>Event time below is the Asterisk-provided timestamp when present. Receipt time is the local observation time. AMI has no durable replay identifier; session sequence prevents retry duplication within a session, but does not establish perfect deduplication across connections.</p>
 {{range .Events}}<p>{{.Name}} · receipt UTC {{utcTime .ReceivedAt}} · {{if .SourceAt}}Asterisk UTC {{utcTime .SourceAt}}{{else}}Occurrence time unavailable{{end}} · {{.Technology}} · session {{.SessionID}} sequence {{.Sequence}} · coverage gap {{.Gap}}</p>{{end}}
 <div class="table-scroll"><table><thead><tr><th>Transition UTC</th><th>State</th><th>Diagnostic</th><th>Coverage gap</th></tr></thead><tbody>{{range .Transitions}}<tr><td>{{utcTime .At}}</td><td>{{.State}}</td><td>{{.Reason}}</td><td>{{.Gap}} · dropped {{.Dropped}}</td></tr>{{else}}<tr><td colspan="4">No connection attempts recorded.</td></tr>{{end}}</tbody></table></div>
 </details>
 {{end}}
+<details id="ami-administration"><summary>Advanced AMI connection settings</summary>
 {{if .Server.Asterisk.AMI.Authorized}}
 <form method="post" action="/servers/{{.Server.Detail.ID}}/ami"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="profile" value="{{.Server.Runtime.Profile.Target.ProfileID}}"><input type="hidden" name="endpoint" value="{{.Server.Runtime.Profile.Target.EndpointID}}"><input type="hidden" name="revision" value="{{.Server.Runtime.Profile.Target.ProfileVersion}}"><input type="hidden" name="authorize" value="no"><button type="submit">Revoke AMI forwarding</button></form>
 {{else}}
-<details><summary>Authorize restricted AMI monitoring</summary><p>This grants one persistent SSH stdio connection to the administrator-configured remote loopback AMI port, using a dedicated forwarding-only SSH identity and event-only AMI account. It does not change the SSH snapshot or log-reader grants. Existing monitoring pause and emergency-stop controls apply.</p>
+<details id="asterisk_ami-authorize-restricted-ami-monitoring"><summary>Authorize restricted AMI monitoring</summary><p>This grants one persistent SSH stdio connection to the administrator-configured remote loopback AMI port, using a dedicated forwarding-only SSH identity and event-only AMI account. It does not change the SSH snapshot or log-reader grants. Existing monitoring pause and emergency-stop controls apply.</p>
 {{range .Server.Asterisk.AMIChoices}}<form method="post" action="/servers/{{$.Server.Detail.ID}}/ami"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="profile" value="{{$.Server.Runtime.Profile.Target.ProfileID}}"><input type="hidden" name="endpoint" value="{{$.Server.Runtime.Profile.Target.EndpointID}}"><input type="hidden" name="revision" value="{{$.Server.Runtime.Profile.Target.ProfileVersion}}"><input type="hidden" name="credential_ref" value="{{.ID}}"><input type="hidden" name="authorize" value="yes"><button type="submit">Authorize {{.ID}} · loopback port {{.Port}}</button></form>{{else}}<p>No protected AMI credential is configured for this verified enrollment revision. Administrator setup is required.</p>{{end}}
 </details>
 {{end}}
+</details>
 </div>
 {{end}}

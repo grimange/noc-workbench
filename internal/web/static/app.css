@@ -286,3 +286,17 @@ details:not([open])>:not(summary){display:none}
 .server-details .section-tabs {margin-top:12px}
 @media(max-width:800px){.monitoring-overview {grid-template-columns:minmax(0,1fr);gap:8px;padding:12px 14px}.monitoring-actions {grid-row:3}.monitoring-disclosures {gap:8px 20px}}
 @media(max-width:480px){.server-details .resource-gauge {display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;padding:10px 14px}.server-details .resource-gauge .gauge-value {text-align:right}.monitoring-overview .console-summary {gap:8px 20px}.monitoring-status-row {gap:6px 14px}.monitoring-actions form {flex-wrap:wrap}}
+
+/* Service monitoring: condition first, investigation on demand. */
+.service-indicators{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}
+.service-indicators>div{min-width:0;border-left:2px solid var(--border);padding:4px 12px}
+.service-indicators dt{font-size:.8rem;color:var(--muted)}
+.service-indicators dd{font-size:1.05rem;font-weight:650;margin:5px 0;overflow-wrap:anywhere}
+.service-indicators p,.service-secondary{color:var(--muted);font-size:.8rem;margin:4px 0;overflow-wrap:anywhere}
+.service-issues{border-left:3px solid var(--border);padding:6px 14px;margin:12px 0}
+.service-issues h3{font-size:.9rem;margin:0}.service-issues ul{margin:6px 0;padding-left:18px}
+.service-investigation>details{border-top:1px solid var(--border);padding:10px 0;margin:0}
+.service-investigation>details>summary{font-weight:600;cursor:pointer}
+.database-capacity{display:block;width:100%;height:8px;margin:10px 0}
+@media(max-width:900px){.service-indicators{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.service-indicators{gap:10px 6px}.service-indicators>div{padding:2px 8px}.service-indicators dd{font-size:.95rem}}

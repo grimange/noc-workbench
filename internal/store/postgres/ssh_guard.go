@@ -29,6 +29,11 @@ func (s *Store) BeginSSH(ctx context.Context, p workspace.Principal, t sshcli.Ta
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
+	// The same transaction lock fences failed pre-contact acquisition cleanup.
+	// Namespace seed 370046 keeps this lock distinct from other application locks.
+	if _, e = tx.Exec(ctx, sshAcquisitionLock, t.ProfileID); e != nil {
+		return "", sshcli.LocalFailure(e)
+	}
 	var token string
 	e = tx.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) SELECT id,$1,revision FROM connection_profile WHERE id=$2 AND endpoint_id=$3 AND asset_id=$4 AND revision=$5 AND state IN ('connection_verified','pending_host_key_verification') RETURNING token::text`, p.ID, t.ProfileID, t.EndpointID, t.AssetID, t.ProfileVersion).Scan(&token)
 	if e != nil {
@@ -54,16 +59,41 @@ func (s *Store) commitSSHGuard(ctx context.Context, tx pgx.Tx, profile, token st
 	if commitErr == nil {
 		return token, nil
 	}
-	// Contact has not started. Retire only this acquisition's known token with
-	// its own bounded acknowledgement. Even successful cleanup cannot authorize
-	// execution; a late/unknown commit still fails closed and may require review.
+	// No remote operation has started. Wait for the acquisition transaction to
+	// become terminal before looking for its token: a DELETE before a late
+	// COMMIT can otherwise miss the guard. Never retire a remote execution guard.
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
 	if token != "" {
-		_ = s.EndSSH(cleanup, profile, token)
+		_ = s.retireSSHAcquisition(cleanup, profile, token)
 	}
 	return "", &sshcli.Failure{Category: sshcli.GuardUncertain, Cause: commitErr}
 }
+
+const sshAcquisitionLock = `SELECT pg_advisory_xact_lock(hashtextextended($1::text,370046))`
+
+// Only commitSSHGuard may reconcile a known pre-contact acquisition. The lock
+// is acquired in a separate statement so READ COMMITTED takes a new snapshot
+// for DELETE after the originating transaction has released its lock.
+func (s *Store) retireSSHAcquisition(ctx context.Context, profile, token string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	if _, err = tx.Exec(ctx, sshAcquisitionLock, profile); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM ssh_execution_guard WHERE profile_id=$1 AND token::text=$2`, profile, token); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *Store) SSHAllowed(ctx context.Context, t sshcli.Target, token string) error {
 	var allowed bool
 	e := s.pool.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM ssh_execution_guard WHERE profile_id=$1 AND (token::text<>$2 OR revision<>$3))`, t.ProfileID, token, t.ProfileVersion).Scan(&allowed)

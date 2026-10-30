@@ -5,6 +5,7 @@ import (
 	"errors"
 	"noc-workbench/internal/transport/sshcli"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,48 +101,137 @@ func TestIntegrationCollectionCommitAcknowledgement(t *testing.T) {
 
 func TestIntegrationGuardCommitAcknowledgement(t *testing.T) {
 	db, _, target := collectionFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	for _, outcome := range []string{"committed", "late_commit", "rollback"} {
+		t.Run(outcome, func(t *testing.T) {
+			tx, e := db.pool.Begin(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer tx.Rollback(context.Background())
+			if _, e = tx.Exec(ctx, sshAcquisitionLock, target.ProfileID); e != nil {
+				t.Fatal(e)
+			}
+			var pid int32
+			if e = tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); e != nil {
+				t.Fatal(e)
+			}
+			var token string
+			if e = tx.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) VALUES($1,$2,$3) RETURNING token::text`, target.ProfileID, workspace.OperatorID, target.ProfileVersion).Scan(&token); e != nil {
+				t.Fatal(e)
+			}
+			type result struct {
+				token string
+				err   error
+			}
+			done := make(chan result, 1)
+			go func() {
+				got, err := db.commitSSHGuard(ctx, lostCommit{Tx: tx, commit: outcome == "committed"}, target.ProfileID, token)
+				done <- result{got, err}
+			}()
+			if outcome != "committed" {
+				// Establish the cleanup's lock wait before settling the originating
+				// transaction. No arbitrary sleeps or timing-dependent late commit.
+				for {
+					var waiting bool
+					e = db.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1::int=ANY(pg_blocking_pids(pid)))`, pid).Scan(&waiting)
+					if e != nil {
+						t.Fatal(e)
+					}
+					if waiting {
+						break
+					}
+					select {
+					case r := <-done:
+						t.Fatalf("cleanup returned before terminal transaction: %v", r.err)
+					default:
+					}
+				}
+				if outcome == "late_commit" {
+					e = tx.Commit(ctx)
+				} else {
+					e = tx.Rollback(ctx)
+				}
+				if e != nil {
+					t.Fatal(e)
+				}
+			}
+			r := <-done
+			var failure *sshcli.Failure
+			if r.token != "" || !errors.As(r.err, &failure) || failure.Category != sshcli.GuardUncertain || !errors.Is(r.err, context.DeadlineExceeded) {
+				t.Fatal("uncertain acquisition authorized a child or lost cause", r.err)
+			}
+			var n int
+			if e = db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard WHERE profile_id=$1`, target.ProfileID).Scan(&n); e != nil || n != 0 {
+				t.Fatal("pre-contact cleanup failed", n, e)
+			}
+			next, e := db.BeginSSH(ctx, workspace.Principal{ID: workspace.OperatorID}, target)
+			if e != nil || next == "" {
+				t.Fatal("next independent acquisition blocked", e)
+			}
+			if e = db.EndSSH(ctx, target.ProfileID, next); e != nil {
+				t.Fatal(e)
+			}
+		})
+	}
+}
+
+func TestIntegrationGuardAcquisitionCleanupBoundaries(t *testing.T) {
+	db, _, target := collectionFixture(t)
 	ctx := context.Background()
-	for _, commit := range []bool{true, false} {
-		tx, e := db.pool.Begin(ctx)
-		if e != nil {
+	tx, e := db.pool.Begin(ctx)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer tx.Rollback(ctx)
+	if _, e = tx.Exec(ctx, sshAcquisitionLock, target.ProfileID); e != nil {
+		t.Fatal(e)
+	}
+	var token string
+	if e = tx.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) VALUES($1,$2,$3) RETURNING token::text`, target.ProfileID, workspace.OperatorID, target.ProfileVersion).Scan(&token); e != nil {
+		t.Fatal(e)
+	}
+	// Cancel only after proving cleanup is blocked by the originating owner.
+	var pid int32
+	if e = tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&pid); e != nil {
+		t.Fatal(e)
+	}
+	bounded, stop := context.WithTimeout(ctx, 10*time.Second)
+	defer stop()
+	cleanup, cancel := context.WithCancel(bounded)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- db.retireSSHAcquisition(cleanup, target.ProfileID, token) }()
+	for {
+		var waiting bool
+		if e = db.pool.QueryRow(bounded, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1::int=ANY(pg_blocking_pids(pid)))`, pid).Scan(&waiting); e != nil {
 			t.Fatal(e)
 		}
-		var token string
-		if e = tx.QueryRow(ctx, `INSERT INTO ssh_execution_guard(profile_id,principal_id,revision) VALUES($1,$2,$3) RETURNING token::text`, target.ProfileID, workspace.OperatorID, target.ProfileVersion).Scan(&token); e != nil {
-			t.Fatal(e)
+		if waiting {
+			break
 		}
-		got, e := db.commitSSHGuard(ctx, lostCommit{Tx: tx, commit: commit}, target.ProfileID, token)
-		var failure *sshcli.Failure
-		if !errors.As(e, &failure) || failure.Category != sshcli.GuardUncertain || !errors.Is(e, context.DeadlineExceeded) {
-			t.Fatal("commit cause misclassified", e)
-		}
-		if e == nil || got != "" {
-			t.Fatal("uncertain acquisition authorized a child")
-		}
-		if !commit {
-			// A commit arriving after cleanup is still uncertainty, never authority.
-			if e = tx.Commit(ctx); e != nil {
-				t.Fatal(e)
-			}
-			if e = db.EndSSH(ctx, target.ProfileID, "different-token"); e != nil {
-				t.Fatal(e)
-			}
-		}
-		var n int
-		if e = db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard WHERE profile_id=$1 AND token::text=$2`, target.ProfileID, token).Scan(&n); e != nil || (n == 0) != commit {
-			t.Fatalf("exact pre-contact cleanup commit=%v count=%d: %v", commit, n, e)
-		}
-		if !commit {
-			if e = db.RecoverSSH(ctx); e != nil {
-				t.Fatal(e)
-			}
-			r, e := db.Enrollment(ctx, target.EndpointID, target.ProfileID)
-			if e != nil || r.State != "identity_changed" || r.Details.ApprovedKey != "" {
-				t.Fatal("late guard must retain explicit trust recovery", e)
-			}
+		select {
+		case err := <-done:
+			t.Fatalf("cleanup escaped active acquisition: %v", err)
+		default:
 		}
 	}
-	if db.EndSSH(ctx, target.ProfileID, "already-retired") != nil {
-		t.Fatal("exact-token cleanup must be idempotent")
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("cancelled cleanup succeeded")
+	}
+	if e = tx.Commit(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if e = db.retireSSHAcquisition(ctx, target.ProfileID, "different-token"); e != nil {
+		t.Fatal(e)
+	}
+	var n int
+	if e = db.pool.QueryRow(ctx, `SELECT count(*) FROM ssh_execution_guard WHERE profile_id=$1 AND token::text=$2`, target.ProfileID, token).Scan(&n); e != nil || n != 1 {
+		t.Fatal("wrong token removed guard", n, e)
+	}
+	if e = db.EndSSH(ctx, target.ProfileID, token); e != nil {
+		t.Fatal(e)
 	}
 }

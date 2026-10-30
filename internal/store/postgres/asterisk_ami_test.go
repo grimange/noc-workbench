@@ -54,7 +54,12 @@ func TestIntegrationAMILifecyclePersistenceIsolation(t *testing.T) {
 	must(db.PersistAMIEvent(ctx, b, id, event, 0))
 	event.ReceivedAt = now.Add(time.Hour)
 	must(db.PersistAMIEvent(ctx, b, id, event, 0))
-	view, e := db.AMIView(ctx, actor, h, target, now.Add(time.Second))
+	// Persistence updates the session heartbeat using the database clock.
+	// Observe after that heartbeat rather than assuming the writes finish in
+	// one second on a loaded integration-test host.
+	var viewAt time.Time
+	must(db.pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&viewAt))
+	view, e := db.AMIView(ctx, actor, h, target, viewAt)
 	must(e)
 	if !view.Current || len(view.Events) != 1 || !view.Events[0].ReceivedAt.Equal(now) || !view.LastEventAt.Equal(now) || !view.Events[0].SourceAt.Equal(source) {
 		t.Fatalf("replay changed timestamps %+v", view)

@@ -293,3 +293,24 @@ func TestAPIRetryRequiresActualTransientAndSafeDependencies(t *testing.T) {
 		})
 	}
 }
+
+func TestMariaDBScheduleValidation(t *testing.T) {
+	p := profiles(1, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))[0]
+	p.Collectors = []string{"linux.baseline", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.services", "asterisk.registrations", "asterisk.auth", "asterisk.activity", "asterisk.media", "mariadb.health"}
+	if err := Validate(p); err != nil {
+		t.Fatal("authorized twelve-collector profile rejected", err)
+	}
+	p.Collectors = append(p.Collectors, "mariadb.health")
+	if Validate(p) == nil {
+		t.Fatal("thirteenth collector accepted")
+	}
+	p.Collectors = []string{"mariadb.health", "mariadb.health"}
+	if Validate(p) == nil {
+		t.Fatal("duplicate MariaDB collector accepted")
+	}
+	p.CollectionSource.ID = "api-source"
+	p.Collectors = []string{"vicidial.api.version", "vicidial.api.campaigns", "mariadb.health"}
+	if Validate(p) == nil {
+		t.Fatal("MariaDB admitted to cluster API schedule")
+	}
+}

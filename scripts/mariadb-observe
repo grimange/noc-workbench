@@ -1,0 +1,101 @@
+#!/usr/bin/python3
+"""Fixed, read-only Unix-socket MariaDB observations. No arguments or stdin API."""
+import json, os, re, select, signal, stat, subprocess, sys, time
+METRICS = ('Threads_connected','Threads_running','Max_used_connections','Connections','Aborted_connects','Uptime')
+TOKEN = re.compile(r'^[A-Za-z0-9_.:@+-]{1,128}$')
+class Failure(Exception):
+    pass
+
+def query(sql, socket, deadline):
+    # No defaults files, inherited credentials, arbitrary SQL, or diagnostic output.
+    p = subprocess.Popen(['/usr/bin/mariadb','--no-defaults','--protocol=socket','--socket='+socket,'--user=nwdbmon','--connect-timeout=2','--batch','--raw'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env={'PATH':'/usr/bin:/bin','LC_ALL':'C'},start_new_session=True)
+    try:
+        p.stdin.write(sql.encode());p.stdin.close()
+        streams=[p.stdout,p.stderr];out={p.stdout:bytearray(),p.stderr:bytearray()}
+        while streams:
+            left=deadline-time.monotonic()
+            if left<=0:raise Failure('timeout')
+            ready,_,_=select.select(streams,[],[],left)
+            if not ready:raise Failure('timeout')
+            for stream in ready:
+                data=os.read(stream.fileno(),4096)
+                if not data:streams.remove(stream);continue
+                out[stream].extend(data)
+                if sum(len(x) for x in out.values())>65536:raise Failure('query_failure')
+        p.wait(timeout=max(.01,deadline-time.monotonic()))
+        if p.returncode:
+            # Error numbers only; discard server messages which can contain SQL or secrets.
+            m=re.search(rb'ERROR ([0-9]+)',out[p.stderr]);n=int(m.group(1)) if m else 0
+            raise Failure({1045:'authentication_denied',1698:'authentication_denied',1044:'permission_denied',1227:'permission_denied',1142:'permission_denied',2002:'connection_unavailable',2003:'connection_unavailable',1064:'unsupported'}.get(n,'query_failure'))
+        lines=bytes(out[p.stdout]).decode('utf-8','strict').splitlines()
+        if not lines:return []
+        columns=lines[0].split('\t')
+        if len(columns)!=len(set(columns)):raise Failure('query_failure')
+        rows=[]
+        for line in lines[1:]:
+            values=line.split('\t')
+            if len(values)!=len(columns):raise Failure('query_failure')
+            rows.append(dict(zip(columns,values)))
+        return rows
+    finally:
+        if p.poll() is None:os.killpg(p.pid,signal.SIGKILL)
+        p.wait()
+        for f in (p.stdout,p.stderr):f.close()
+
+def number(value):
+    if value is None or value=='NULL':return None
+    if not re.fullmatch(r'[0-9]{1,20}',value):raise Failure('query_failure')
+    n=int(value)
+    if n>18446744073709551615:raise Failure('query_failure')
+    return n
+
+def collect(socket):
+    start=time.monotonic();deadline=start+4
+    s={'protocol':1,'status':'unknown','version':'','identity':'','server_id':0,'latency_ms':0,'metrics':{},'activity_status':'unknown','replication':'unknown'}
+    try:
+        rows=query('SELECT 1 AS probe,VERSION() AS version,@@hostname AS identity,@@server_id AS server_id;\n',socket,deadline)
+        if len(rows)!=1 or rows[0].get('probe')!='1':raise Failure('query_failure')
+        r=rows[0];s.update(status='ready',version=r['version'],identity=r['identity'],server_id=number(r['server_id']),latency_ms=int((time.monotonic()-start)*1000))
+    except (Failure,OSError,ValueError,KeyError,UnicodeError,subprocess.TimeoutExpired) as e:
+        code=str(e) if isinstance(e,Failure) else 'query_failure'
+        return dict(protocol=1,status=code,version='',identity='',server_id=0,latency_ms=0,metrics={},activity_status='unknown',replication='unknown')
+    try:
+        rows=query("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Max_used_connections','Connections','Aborted_connects','Uptime');\n",socket,deadline)
+        for r in rows:
+            if r.get('Variable_name') not in METRICS or r['Variable_name'] in s['metrics']:raise Failure('query_failure')
+            n=number(r['Value'])
+            if n is not None:s['metrics'][r['Variable_name']]=n
+        rows=query('SELECT @@GLOBAL.max_connections AS capacity;\n',socket,deadline)
+        if len(rows)!=1:raise Failure('query_failure')
+        n=number(rows[0]['capacity'])
+        if n is not None:s['metrics']['max_connections']=n
+        s['activity_status']='ready'
+    except (Failure,OSError,ValueError,KeyError,UnicodeError,subprocess.TimeoutExpired) as e:
+        s['activity_status']=str(e) if isinstance(e,Failure) else 'query_failure'
+    try:
+        rows=query('SHOW ALL REPLICAS STATUS;\n',socket,deadline)
+        if len(rows)>64:raise Failure('query_failure')
+        channels=[]
+        for r in rows:
+            for k in ('Connection_name','Master_Host','Master_Port','Slave_IO_Running','Slave_SQL_Running','Seconds_Behind_Master','Last_IO_Errno','Last_SQL_Errno'):
+                if k not in r:raise Failure('unsupported')
+            name=r['Connection_name'];host=r['Master_Host']
+            if (name and not TOKEN.fullmatch(name)) or not TOKEN.fullmatch(host):raise Failure('query_failure')
+            channels.append(dict(name=name,source=host,port=number(r['Master_Port']),io=r['Slave_IO_Running'] if r['Slave_IO_Running'] in ('Yes','No','Connecting') else 'Unknown',sql=r['Slave_SQL_Running'] if r['Slave_SQL_Running'] in ('Yes','No') else 'Unknown',lag=number(r['Seconds_Behind_Master']),io_error=number(r['Last_IO_Errno']),sql_error=number(r['Last_SQL_Errno'])))
+        s.update(replication='ready',channels=channels)
+    except (Failure,OSError,ValueError,KeyError,UnicodeError,subprocess.TimeoutExpired) as e:
+        s['replication']=str(e) if isinstance(e,Failure) else 'query_failure'
+    return s
+
+def main():
+    if len(sys.argv)!=1:raise SystemExit(2)
+    path='/etc/noc-workbench-mariadb.json'
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+    with os.fdopen(fd) as f:
+        st=os.fstat(f.fileno())
+        if st.st_uid!=0 or st.st_mode&0o022 or not stat.S_ISREG(st.st_mode) or st.st_size>512:raise SystemExit(2)
+        conf=json.load(f)
+    socket=conf['socket']
+    if set(conf)!={'socket'} or not isinstance(socket,str) or not re.fullmatch(r'/[A-Za-z0-9_./-]{1,200}',socket) or '..' in socket.split('/'):raise SystemExit(2)
+    print(json.dumps(collect(socket),separators=(',',':')))
+if __name__=='__main__':main()

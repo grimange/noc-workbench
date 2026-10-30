@@ -13,13 +13,13 @@ import (
 )
 
 type enrollmentData struct {
-	Asset                             inventory.Asset
-	Endpoints                         []inventory.Endpoint
-	Records                           []connections.Record
-	References                        []string
-	Standard                          map[string]bool
-	Helper                            map[string]bool
-	Auth, AuthHelper, Activity, Media map[string]bool
+	Asset                                      inventory.Asset
+	Endpoints                                  []inventory.Endpoint
+	Records                                    []connections.Record
+	References                                 []string
+	Standard                                   map[string]bool
+	Helper                                     map[string]bool
+	Auth, AuthHelper, Activity, Media, MariaDB map[string]bool
 }
 
 func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +78,11 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 				if !yes || revision != existing.Revision || r.PostForm.Get("evidence") != "standard" {
 					err = connections.ErrInput
 				} else {
-					if expanded, ok := s.store.(interface {
+					if dbGrant, ok := s.store.(interface {
+						SetStandardMonitoringWithMariaDB(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, bool, bool, bool, bool, bool, bool) error
+					}); ok && r.PostForm.Has("mariadb_scope") {
+						err = dbGrant.SetStandardMonitoringWithMariaDB(r.Context(), operatorPrincipal(), collection.HistoryScope{CustomerID: existing.CustomerID, EnvironmentID: existing.EnvironmentID, AssetID: existing.AssetID}, existing.Target(), r.PostForm.Get("helper") == "yes", r.PostForm.Get("auth_logs") == "yes", r.PostForm.Get("auth_helper") == "yes", r.PostForm.Get("activity") == "yes", r.PostForm.Get("media") == "yes", r.PostForm.Get("mariadb") == "yes")
+					} else if expanded, ok := s.store.(interface {
 						SetStandardMonitoringWithAuth(context.Context, workspace.Principal, collection.HistoryScope, sshcli.Target, bool, bool, bool) error
 					}); ok {
 						if expandedActivity, ok := s.store.(interface {
@@ -141,6 +145,7 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 	d.Enrollment.AuthHelper = map[string]bool{}
 	d.Enrollment.Activity = map[string]bool{}
 	d.Enrollment.Media = map[string]bool{}
+	d.Enrollment.MariaDB = map[string]bool{}
 	if grant, yes := s.store.(interface {
 		StandardMonitoringAllowed(context.Context, workspace.Principal, sshcli.Target) error
 		IntegrationAllowed(context.Context, workspace.Principal, sshcli.Target, string) error
@@ -150,6 +155,7 @@ func (s *Server) sshEnrollment(w http.ResponseWriter, r *http.Request) {
 			d.Enrollment.Helper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_helper") == nil
 			d.Enrollment.Auth[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_auth") == nil
 			d.Enrollment.AuthHelper[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_auth_helper") == nil
+			d.Enrollment.MariaDB[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "mariadb") == nil
 			d.Enrollment.Media[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_media") == nil
 			d.Enrollment.Activity[rec.ID] = grant.IntegrationAllowed(r.Context(), operatorPrincipal(), rec.Target(), "asterisk_activity") == nil
 		}

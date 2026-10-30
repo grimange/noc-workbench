@@ -877,3 +877,55 @@ Session/sequence replay is idempotent; AMI supplies no durable cross-session
 replay identity. No raw frames, caller numbers, dialed numbers, media content or
 quality scores are stored. Direct media or absent RTCP can legitimately leave a
 channel without measurements; missing data never means zero loss or healthy.
+
+### Optional MariaDB socket monitoring (NW-017)
+
+Server Details → Services includes MariaDB query readiness, global activity,
+replica-channel status and bounded recent history. Enable the MariaDB checkbox in
+Standard Server Monitoring after administrator setup. The existing scheduler
+collects every 60 seconds; passive HTTP and SSE reads never execute SQL. Process
+and systemd state remain separate from an authenticated connection and `SELECT 1`.
+Readiness, activity availability and replica status are independent observations.
+A failed collection preserves prior evidence as historical rather than refreshing
+its timestamp. Current evidence expires after 180 seconds.
+
+The reviewed MariaDB 10.x reader is `scripts/mariadb-observe`, installed as
+root-owned, non-writable `/usr/local/sbin/noc-mariadb-observe`. Its root-owned
+`/etc/noc-workbench-mariadb.json` contains only the verified local socket path, for
+example `{"socket":"/run/mysql/mysql.sock"}`. A dedicated OS account `nwdbmon`
+(with no login shell) authenticates to `'nwdbmon'@'localhost'` using `unix_socket`.
+The database identity requires only `REPLICA MONITOR` (reported as `SLAVE MONITOR`
+by some MariaDB revisions), with no application-database grants. Inspect effective
+inherited privileges as well: MariaDB PUBLIC or role grants can otherwise confer
+unexpected access. Administrator setup must establish effective read-only access
+before enabling collection.
+
+Delegate only the no-argument reader to the enrolled SSH observer, using a validated
+sudoers rule such as:
+
+```sudoers
+observer ALL=(nwdbmon) NOPASSWD: NOSETENV: /usr/local/sbin/noc-mariadb-observe ""
+```
+
+This separate opt-in capability does not grant arbitrary SQL or root execution.
+The helper uses fixed SQL, a four-second shared deadline and bounded output. It
+reads no application tables and stores no credentials, query text or raw database
+error messages. Connection/authentication/permission/query/timeout failures use
+sanitized diagnostic codes. Replica errors retain error numbers and operational
+classification while omitting potentially sensitive server error text.
+
+Global measurements distinguish current connections, running threads, the
+connection high-water mark, cumulative connection attempts and aborted attempts,
+uptime and configured capacity. Missing values remain unavailable; counters are
+not displayed as rates. `SHOW ALL REPLICAS STATUS` is parsed by column name and
+retains each channel independently. NULL lag is unavailable, zero lag alone does
+not establish health, and positive lag is labeled Delayed. A successful empty
+result means no local replica channels were returned; it does not establish a
+Primary or Standalone role or exclude downstream replicas. Role remains Unknown
+without sufficient topology evidence; configured local replica channels support
+Replica classification. Migration 023 extends the existing scoped observation
+journal and creates no separate database-monitoring store.
+
+Focused helper tests: `python3 scripts/mariadb-observe_test.py`. Go parser,
+authorization, stale evidence, transport and PostgreSQL integration tests run
+through the existing verification commands, including `./scripts/test-m0`.

@@ -96,6 +96,7 @@ type command struct {
 // Registry entries are source-controlled static shell text. No caller can add
 // commands or interpolate remote values. Optional sources have explicit framing.
 var registry = map[string]command{
+	"mariadb.health.v1":                {"/usr/bin/sudo -n -u nwdbmon -- /usr/local/sbin/noc-mariadb-observe", 5 * time.Second, 64 * 1024},
 	"asterisk.media.helper.v1":         {"/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe media", 5 * time.Second, 64 * 1024},
 	"asterisk.media.v1":                {"set -e; export LC_ALL=C PATH=/usr/sbin:/usr/bin:/sbin:/bin; asterisk -rx 'core show version' 2>&1; printf '\\nNW_MEDIA_sip\\n'; asterisk -rx 'sip show channelstats' 2>&1; printf '\\nNW_MEDIA_pjsip\\n'; asterisk -rx 'pjsip show channelstats' 2>&1; printf '\\nNW_MEDIA_END\\n'", 5 * time.Second, 64 * 1024},
 	"asterisk.activity.helper.v1":      {"/usr/bin/sudo -n -- /usr/local/sbin/noc-asterisk-observe activity", 5 * time.Second, 64 * 1024},

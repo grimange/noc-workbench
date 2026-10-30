@@ -34,6 +34,7 @@ type serverData struct {
 	Resources         resourceData
 	Runtime           runtimeData
 	Asterisk          asteriskRegistrationData
+	MariaDB           mariaDBData
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, d pageData) {
@@ -138,6 +139,11 @@ func (s *Server) serverDetails(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d.Server.Asterisk, e = s.serverAsteriskData(r, v, in, d.Server.Result, d.Server.Runtime)
+		if e != nil {
+			s.inventoryFailure(w, d, e)
+			return
+		}
+		d.Server.MariaDB, e = s.serverMariaDB(r, in, d.Server.Runtime)
 		if e != nil {
 			s.inventoryFailure(w, d, e)
 			return

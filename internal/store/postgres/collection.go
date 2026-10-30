@@ -13,6 +13,7 @@ import (
 	"noc-workbench/internal/collection"
 	activity "noc-workbench/internal/integrations/asteriskactivity"
 	auth "noc-workbench/internal/integrations/asteriskauth"
+	"noc-workbench/internal/integrations/mariadb"
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/transport/sshcli"
 	"noc-workbench/internal/workspace"
@@ -93,7 +94,7 @@ func (s *Store) BeginCollection(ctx context.Context, p workspace.Principal, t ss
 var safeDiagnostic = regexp.MustCompile(`^[a-z_]{1,80}$`)
 
 func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r collection.Run, ttl int) error {
-	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 11) || ttl < 1 || ttl > 86400 {
+	if p.ID != workspace.OperatorID || r.PrincipalID != p.ID || (len(r.Results) < 1 || len(r.Results) > 12) || ttl < 1 || ttl > 86400 {
 		return collection.ErrPersistence
 	}
 	r.Summarize()
@@ -123,6 +124,16 @@ func (s *Store) FinishCollection(ctx context.Context, p workspace.Principal, r c
 	for _, c := range r.Results {
 		if len(c.Diagnostics) > 16 || len(c.Observations) > 2048 {
 			return collection.ErrPersistence
+		}
+		if c.CollectorID == mariadb.Collector {
+			if integrationAllowed(ctx, tx, p, r.Target, "mariadb") != nil {
+				return workspace.ErrDenied
+			}
+			if len(c.Observations) > 0 {
+				if _, err := mariadb.Decode(c.Observations); err != nil {
+					return collection.ErrPersistence
+				}
+			}
 		}
 		diag := []string{}
 		for _, d := range c.Diagnostics {

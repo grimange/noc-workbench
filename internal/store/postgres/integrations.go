@@ -59,7 +59,7 @@ func (s *Store) SetIntegration(ctx context.Context, p workspace.Principal, h col
 }
 
 func monitoringIntegration(name string) bool {
-	return name == "asterisk_media" || name == "asterisk_activity" || name == "asterisk_auth" || name == "asterisk_auth_helper" || name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
+	return name == "mariadb" || name == "asterisk_media" || name == "asterisk_activity" || name == "asterisk_auth" || name == "asterisk_auth_helper" || name == "asterisk" || name == "vicidial_discovery" || name == "runtime_services" || name == "baseline" || name == "asterisk_helper"
 }
 
 // StandardMonitoringAllowed is a projection of the existing four scoped grants,
@@ -172,7 +172,7 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 			return ErrUnavailable
 		}
 	}
-	if len(media) == 1 {
+	if len(media) >= 1 {
 		if e = grantMonitoring(ctx, tx, p, r, "asterisk_media", media[0]); e != nil {
 			return e
 		}
@@ -185,6 +185,20 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 			return ErrUnavailable
 		}
 	}
+	if len(media) == 2 {
+		if e = grantMonitoring(ctx, tx, p, r, "mariadb", media[1]); e != nil {
+			return e
+		}
+		if media[1] {
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'mariadb.health'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('mariadb.health'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
+		} else {
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'mariadb.health'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'mariadb.health'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+		}
+		if e != nil {
+			return ErrUnavailable
+		}
+	}
+
 	_, e = tx.Exec(ctx, `INSERT INTO connection_audit(profile_id,principal_id,revision,operation,state,category) VALUES($1,$2,$3,'standard',$4,$5)`, r.ID, p.ID, r.Revision, r.State, map[bool]string{true: "standard_helper", false: "standard_local_cli"}[helper])
 	if e != nil {
 		return ErrUnavailable
@@ -201,6 +215,11 @@ func grantMonitoring(ctx context.Context, tx pgx.Tx, p workspace.Principal, r co
 }
 func collectorsAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, ids []string) error {
 	for _, id := range ids {
+		if id == "mariadb.health" {
+			if e := integrationAllowed(ctx, q, p, t, "mariadb"); e != nil {
+				return e
+			}
+		}
 		if id == "asterisk.media" {
 			if err := integrationAllowed(ctx, q, p, t, "asterisk_media"); err != nil {
 				return err
@@ -284,4 +303,12 @@ func (s *Store) SetStandardMonitoringWithMedia(ctx context.Context, p workspace.
 		return workspace.ErrDenied
 	}
 	return s.setStandardMonitoring(ctx, p, h, t, helper, []bool{auth, authHelper}, &active, media)
+}
+
+// SetStandardMonitoringWithMariaDB adds only the disclosed fixed socket reader.
+func (s *Store) SetStandardMonitoringWithMariaDB(ctx context.Context, p workspace.Principal, h collection.HistoryScope, t sshcli.Target, helper, auth, authHelper, active, media, database bool) error {
+	if authHelper && !auth || media && !active {
+		return workspace.ErrDenied
+	}
+	return s.setStandardMonitoring(ctx, p, h, t, helper, []bool{auth, authHelper}, &active, media, database)
 }

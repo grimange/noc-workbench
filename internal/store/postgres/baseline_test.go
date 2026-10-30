@@ -190,13 +190,13 @@ func TestIntegrationBaselinePreservesApprovedCollectors(t *testing.T) {
 	if len(snap.Profiles) != 1 || len(snap.Profiles[0].Collectors) != 8 || !snap.Profiles[0].Eligible {
 		t.Fatal(snap)
 	}
-	// The eleven-collector cap is deliberate: reject overflow atomically,
+	// The twelve-collector cap is deliberate: reject overflow atomically,
 	// rather than silently discarding previously authorized optional collectors.
-	_, e = db.pool.Exec(ctx, `UPDATE collection_schedule SET collector_ids=ARRAY['linux.identity','linux.uptime','linux.load','linux.memory','linux.filesystems','linux.services','asterisk.identity','asterisk.channels','asterisk.modules','asterisk.pjsip','asterisk.media'] WHERE asset_id=$1`, h.AssetID)
+	_, e = db.pool.Exec(ctx, `UPDATE collection_schedule SET collector_ids=ARRAY['linux.identity','linux.uptime','linux.load','linux.memory','linux.filesystems','linux.services','asterisk.identity','asterisk.channels','asterisk.modules','asterisk.pjsip','asterisk.media','mariadb.health'] WHERE asset_id=$1`, h.AssetID)
 	must(e)
 	prior := r.Revision
 	if _, e = db.SaveEnrollment(ctx, p, r, r.Revision, "baseline"); e == nil {
-		t.Fatal("twelve collector schedule accepted")
+		t.Fatal("thirteen collector schedule accepted")
 	}
 	r, e = db.Enrollment(ctx, target.EndpointID, target.ProfileID)
 	must(e)

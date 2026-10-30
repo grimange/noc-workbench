@@ -148,7 +148,7 @@ func evaluationEvidenceTx(ctx context.Context, tx pgx.Tx, h collection.HistorySc
 		}
 	}
 	if in.LatestAttempt != nil && !in.LatestAttempt.EndedAt.IsZero() && !in.LatestAttempt.EndedAt.After(at) {
-		rr, err := tx.Query(ctx, `SELECT collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics FROM collector_result WHERE run_id=$1 ORDER BY collector_id LIMIT 10`, in.LatestAttempt.ID)
+		rr, err := tx.Query(ctx, `SELECT collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics FROM collector_result WHERE run_id=$1 ORDER BY collector_id LIMIT 32`, in.LatestAttempt.ID)
 		if err != nil {
 			return in, ErrUnavailable
 		}

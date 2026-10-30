@@ -121,7 +121,7 @@ func (s *Store) SaveSchedule(ctx context.Context, actor workspace.Principal, p s
 	}
 	// Withdrawal and pause must remain available after trust/owner invalidation.
 	if p.ID != "" && (!p.Enabled || p.Paused) {
-		out, e := scanSchedule(s.pool.QueryRow(ctx, `UPDATE collection_schedule s SET enabled=$1,authorized=$2,paused=$3,revision=revision+1,retry_count=0,state=CASE WHEN $1 THEN 'paused' ELSE 'disabled' END WHERE id=$4 AND revision=$5 AND customer_id=$6 AND environment_id=$7 AND asset_id=$8 RETURNING `+scheduleColumns, p.Enabled, p.Authorized, p.Paused, p.ID, p.Revision, p.CustomerID, p.EnvironmentID, p.AssetID))
+		out, e := scanSchedule(s.pool.QueryRow(ctx, `UPDATE collection_schedule s SET enabled=$1,monitoring_expected=$1,authorized=$2,paused=$3,revision=revision+1,retry_count=0,state=CASE WHEN $1 THEN 'paused' ELSE 'disabled' END WHERE id=$4 AND revision=$5 AND customer_id=$6 AND environment_id=$7 AND asset_id=$8 RETURNING `+scheduleColumns, p.Enabled, p.Authorized, p.Paused, p.ID, p.Revision, p.CustomerID, p.EnvironmentID, p.AssetID))
 		if e != nil {
 			return p, scheduler.ErrInvalid
 		}
@@ -154,9 +154,9 @@ func (s *Store) SaveSchedule(ctx context.Context, actor workspace.Principal, p s
 	// The approval revision is captured, so editing an endpoint never silently
 	// redirects an existing schedule. Re-enabling requires explicit operator intent.
 	if p.ID == "" {
-		p, e = scanSchedule(tx.QueryRow(ctx, `INSERT INTO collection_schedule AS s(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,endpoint_revision,principal_id,collector_ids,interval_seconds,budget_seconds,enabled,authorized,paused,next_due) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,clock_timestamp()+interval '1 day' FROM connection_profile WHERE id=$5 AND revision=$6 RETURNING `+scheduleColumns, p.CustomerID, p.EnvironmentID, p.AssetID, p.Target.EndpointID, p.Target.ProfileID, p.Target.ProfileVersion, rec.Details.EndpointUpdatedAt, actor.ID, p.Collectors, p.Interval, p.Budget, p.Enabled, p.Authorized, p.Paused))
+		p, e = scanSchedule(tx.QueryRow(ctx, `INSERT INTO collection_schedule AS s(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,endpoint_revision,principal_id,collector_ids,interval_seconds,budget_seconds,enabled,authorized,paused,monitoring_expected,next_due) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$12,clock_timestamp()+interval '1 day' FROM connection_profile WHERE id=$5 AND revision=$6 RETURNING `+scheduleColumns, p.CustomerID, p.EnvironmentID, p.AssetID, p.Target.EndpointID, p.Target.ProfileID, p.Target.ProfileVersion, rec.Details.EndpointUpdatedAt, actor.ID, p.Collectors, p.Interval, p.Budget, p.Enabled, p.Authorized, p.Paused))
 	} else {
-		p, e = scanSchedule(tx.QueryRow(ctx, `UPDATE collection_schedule s SET endpoint_id=$1,profile_id=$2,profile_revision=$3,endpoint_revision=$4,principal_id=$5,collector_ids=$6,interval_seconds=$7,budget_seconds=$8,enabled=$9,authorized=$10,paused=$11,revision=revision+1,retry_count=0,state='idle',category='' WHERE id=$12 AND customer_id=$13 AND environment_id=$14 AND asset_id=$15 AND revision=$16 RETURNING `+scheduleColumns, p.Target.EndpointID, p.Target.ProfileID, p.Target.ProfileVersion, rec.Details.EndpointUpdatedAt, actor.ID, p.Collectors, p.Interval, p.Budget, p.Enabled, p.Authorized, p.Paused, p.ID, p.CustomerID, p.EnvironmentID, p.AssetID, p.Revision))
+		p, e = scanSchedule(tx.QueryRow(ctx, `UPDATE collection_schedule s SET endpoint_id=$1,profile_id=$2,profile_revision=$3,endpoint_revision=$4,principal_id=$5,collector_ids=$6,interval_seconds=$7,budget_seconds=$8,enabled=$9,monitoring_expected=$9,authorized=$10,paused=$11,revision=revision+1,retry_count=0,state='idle',category='' WHERE id=$12 AND customer_id=$13 AND environment_id=$14 AND asset_id=$15 AND revision=$16 RETURNING `+scheduleColumns, p.Target.EndpointID, p.Target.ProfileID, p.Target.ProfileVersion, rec.Details.EndpointUpdatedAt, actor.ID, p.Collectors, p.Interval, p.Budget, p.Enabled, p.Authorized, p.Paused, p.ID, p.CustomerID, p.EnvironmentID, p.AssetID, p.Revision))
 	}
 	if e != nil {
 		return p, scheduler.ErrInvalid

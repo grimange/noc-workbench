@@ -333,6 +333,24 @@ streams share bounded 65-second connections; sessions are revalidated every five
 seconds and slow writes have three-second deadlines. `X-Accel-Buffering: no`
 requests proxy streaming. No external CDN, event broker or remote command is added.
 
+Operational alert policies also support monitoring continuity, corroborated SSH
+network unreachability, observed Asterisk runtime failure, expected AMI disconnect,
+five supported authentication failures within five minutes, MariaDB query-readiness
+failure, per-channel replica failure and explicitly configured replica lag.
+These are opt-in conditions using existing normalized observations and authority;
+no remote actions or notification delivery are added. Monitoring continuity reads
+persisted scheduling intent independently of target dispatch. Its grace is the
+largest of the configured threshold, three schedule intervals, or execution budget
+plus one interval. Intentional pause, emergency stop and revoked authority hold
+incident state rather than implying remote failure or recovery.
+
+Filesystem capacity policies require matching filesystem identity evidence and
+exclude known pseudo/transient devices and runtime credential mounts. Unfamiliar
+persistent mount paths remain eligible. Every mount remains available in source
+evidence. Stale or missing measurements never establish recovery; a successful
+empty replica result establishes only that no local replica channels were returned.
+Thresholds, debounce and severity remain explicit operator configuration.
+
 ### Optional Asterisk inspection (NW-014)
 
 The asset Linux Facts page offers a separate, explicit Asterisk opt-in for each
@@ -372,9 +390,9 @@ Asterisk observations use existing durable history, monitoring charts and SSE
 reconciliation. Channels and registration totals use `count`, version uses `text`,
 and capability flags use integer 0/1 counts. Version/module facts have canonical
 86400-second freshness; channels/registrations use 180 seconds. These are freshness
-policies, not polling guarantees. Service health remains Unknown. No Asterisk alert
-thresholds or call-center conclusions are enabled; existing explicitly configured
-Linux resource alerts remain available.
+policies, not polling guarantees. Comprehensive service health remains Unknown.
+Operational alerts require explicit policies; no call-center conclusions or
+expected registration totals are inferred.
 
 ### Optional VICIdial cluster context (NW-015)
 

@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"noc-workbench/internal/collection"
+	"noc-workbench/internal/health"
 	"time"
 )
 
@@ -75,47 +76,8 @@ func availability(d runtimeData, at time.Time) (state, tone, reason string, atte
 		return state, tone, "Collection inconclusive for SSH reachability", 1, checked
 	}
 }
-func networkFailure(code string) bool {
-	return code == "connection_timeout" || code == "connection_refused" || code == "dns_failure"
-}
-func connectivity(r collection.Run) string {
-	// Order-independent reduction. Trust/authentication diagnostics survive later
-	// guard denials; mixed connectivity/command results are inconclusive.
-	codes := map[string]bool{}
-	switch r.Category {
-	case "host_key_mismatch", "unknown_host_key", "authentication_failed", "permission_denied", "credential_unavailable":
-		codes[r.Category] = true
-	}
-	if len(r.Results) == 0 && r.Category != "" && r.Category != "success" {
-		codes[r.Category] = true
-	}
-	for _, c := range r.Results {
-		if c.TransportOutcome != "" {
-			codes[c.TransportOutcome] = true
-		}
-	}
-	for _, code := range []string{"host_key_mismatch", "unknown_host_key", "authentication_failed", "permission_denied", "credential_unavailable"} {
-		if codes[code] {
-			return code
-		}
-	}
-	if len(codes) == 0 {
-		return ""
-	}
-	onlyNetwork := true
-	for code := range codes {
-		if !networkFailure(code) {
-			onlyNetwork = false
-		}
-	}
-	if onlyNetwork {
-		return "connection_timeout"
-	}
-	if len(codes) == 1 && codes["success"] {
-		return "success"
-	}
-	return "inconclusive"
-}
+func networkFailure(code string) bool      { return health.NetworkFailure(code) }
+func connectivity(r collection.Run) string { return health.Connectivity(r) }
 func observationAge(at, checked time.Time) string {
 	age := at.Sub(checked)
 	if age < time.Minute {

@@ -25,9 +25,36 @@ import (
 
 //go:embed templates/*.html static/*
 var assets embed.FS
-var pages = template.Must(template.New("").Funcs(template.FuncMap{"bytesText": bytesText, "localTime": localTime, "utcTime": utcTime, "authTypes": func() []string {
+var pages = template.Must(template.New("").Funcs(template.FuncMap{"alertFamily": alertFamily, "bytesText": bytesText, "localTime": localTime, "utcTime": utcTime, "authTypes": func() []string {
 	return []string{"InvalidPassword", "InvalidAccountID", "ChallengeResponseFailed", "SIPRegistrationRejected", "PJSIPAuthenticationRejected"}
 }}).ParseFS(assets, "templates/*.html"))
+
+// alertFamily labels stored evidence without changing its identity or meaning.
+func alertFamily(key string) string {
+	switch key {
+	case "monitoring.continuity":
+		return "Monitoring interrupted"
+	case "server.ssh_unreachable":
+		return "SSH unreachable"
+	case "service.runtime.unavailable":
+		return "Asterisk runtime unavailable"
+	case "service.ami.disconnected":
+		return "AMI disconnected"
+	case "service.authentication.repeated":
+		return "Repeated authentication failures"
+	case "database.query.failed":
+		return "MariaDB query failure"
+	case "database.replication.failed":
+		return "Replica failure"
+	case "database.replication.lag_seconds":
+		return "Replica lag"
+	case "linux.mem.available_bytes":
+		return "Low available memory"
+	case "linux.filesystem.utilization_percent":
+		return "Filesystem capacity"
+	}
+	return key
+}
 
 func localTime(t time.Time) string {
 	if t.IsZero() {

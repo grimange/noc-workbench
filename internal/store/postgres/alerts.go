@@ -56,7 +56,7 @@ func (s *Store) SaveAlertRule(ctx context.Context, p workspace.Principal, h coll
 	if current != expected {
 		return r, alerts.ErrRule
 	}
-	if tx.QueryRow(ctx, `SELECT revision FROM evaluation_policy WHERE id=$1 AND asset_id=$2 AND rule IN ('memory_available_low','filesystem_used_high') ORDER BY revision DESC LIMIT 1`, r.PolicyID, h.AssetID).Scan(&policyRev) != nil {
+	if tx.QueryRow(ctx, `SELECT revision FROM evaluation_policy WHERE id=$1 AND asset_id=$2 AND rule IN ('memory_available_low','filesystem_used_high','condition_failed','monitoring_interrupted','value_high') ORDER BY revision DESC LIMIT 1`, r.PolicyID, h.AssetID).Scan(&policyRev) != nil {
 		return r, alerts.ErrRule
 	}
 	e = tx.QueryRow(ctx, `INSERT INTO alert_rule(id,revision,customer_id,environment_id,asset_id,policy_id,policy_revision,severity,debounce_seconds,enabled,actor) VALUES(coalesce(nullif($1,'')::uuid,gen_random_uuid()),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id::text,created_at`, r.ID, r.Revision, h.CustomerID, h.EnvironmentID, h.AssetID, r.PolicyID, policyRev, r.Severity, r.DebounceSeconds, r.Enabled, p.ID).Scan(&r.ID, &r.CreatedAt)
@@ -254,6 +254,11 @@ func (s *Store) EvaluateAlerts(ctx context.Context, h collection.HistoryScope, a
 	if e != nil {
 		return e
 	}
+	conditions, e := operationalConditionsTx(ctx, tx, in)
+	if e != nil {
+		return e
+	}
+	evaluated.Readings = append(evaluated.Readings, health.OperationalReadings(conditions, in.Policies, at)...)
 	rules, e := readRules(ctx, tx, h.AssetID)
 	if e != nil {
 		return e

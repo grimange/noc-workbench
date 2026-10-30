@@ -70,6 +70,11 @@ func TestIntegrationBaselineAutomatic(t *testing.T) {
 	if len(snap.Profiles) != 1 || snap.Profiles[0].Interval != 60 || !snap.Profiles[0].Enabled || !snap.Profiles[0].Eligible || len(snap.Profiles[0].Collectors) != 7 {
 		t.Fatalf("automatic schedule %+v", snap)
 	}
+	var expected bool
+	must(db.pool.QueryRow(ctx, `SELECT monitoring_expected FROM collection_schedule WHERE asset_id=$1`, h.AssetID).Scan(&expected))
+	if !expected {
+		t.Fatal("enrollment did not record monitoring intent")
+	}
 	must(db.IntegrationAllowed(ctx, p, target, "baseline"))
 	if db.IntegrationAllowed(ctx, workspace.Principal{}, target, "baseline") == nil {
 		t.Fatal("anonymous authority")
@@ -189,6 +194,11 @@ func TestIntegrationBaselinePreservesApprovedCollectors(t *testing.T) {
 	must(e)
 	if len(snap.Profiles) != 1 || len(snap.Profiles[0].Collectors) != 8 || !snap.Profiles[0].Eligible {
 		t.Fatal(snap)
+	}
+	var expected bool
+	must(db.pool.QueryRow(ctx, `SELECT monitoring_expected FROM collection_schedule WHERE asset_id=$1`, h.AssetID).Scan(&expected))
+	if !expected {
+		t.Fatal("reauthorization did not restore monitoring intent")
 	}
 	// The twelve-collector cap is deliberate: reject overflow atomically,
 	// rather than silently discarding previously authorized optional collectors.

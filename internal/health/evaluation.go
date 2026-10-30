@@ -29,7 +29,8 @@ type Policy struct {
 	Version, Selector, Rule string
 	Scope                   string // canonical or asset override
 	TTLSeconds              int
-	// Threshold is either percent filesystem usage (high) or available bytes (low).
+	// Threshold uses the selector's unit: percent, bytes, seconds, or zero for
+	// an evidence-backed boolean condition.
 	Threshold float64
 	Enabled   bool
 	CreatedAt time.Time
@@ -53,12 +54,27 @@ func (p Policy) Validate() error {
 		if p.Selector != "linux.mem.available_bytes" || p.Threshold < 0 || p.Threshold > math.Pow(2, 53) || math.Trunc(p.Threshold) != p.Threshold {
 			return ErrPolicy
 		}
+	case "condition_failed":
+		if !OperationalSelector(p.Selector) || p.Selector == "monitoring.continuity" || p.Selector == "database.replication.lag_seconds" || p.Threshold != 0 {
+			return ErrPolicy
+		}
+	case "monitoring_interrupted":
+		if p.Selector != "monitoring.continuity" || p.Threshold < 180 || p.Threshold > 86400 {
+			return ErrPolicy
+		}
+	case "value_high":
+		if p.Selector != "database.replication.lag_seconds" || p.Threshold <= 0 || p.Threshold > 86400 {
+			return ErrPolicy
+		}
 	default:
 		return ErrPolicy
 	}
 	return nil
 }
 func SupportedSelector(s string) bool {
+	if OperationalSelector(s) {
+		return true
+	}
 	switch s {
 	case "asterisk.registrations", "asterisk.registration.snapshot", "linux.baseline", "linux.baseline.cpu_percent", "linux.baseline.pressure_some_percent", "linux.baseline.swap_total_bytes", "linux.baseline.swap_free_bytes", "linux.baseline.processes", "linux.baseline.units", "linux.baseline.jobs", "linux.baseline.status", "linux.services", "linux.service.runtime", "vicidial.discovery", "vicidial.discovery.snapshot", "vicidial.api.version", "vicidial.api.campaigns", "vicidial.api.agents", "vicidial.api.build", "vicidial.campaigns.configured_count", "vicidial.campaigns.active_count", "vicidial.agents.visible_logged_in_count", "vicidial.agents.visible_in_call_count", "vicidial.agents.visible_paused_count", "asterisk.identity", "asterisk.channels", "asterisk.modules", "asterisk.pjsip", "asterisk.version", "asterisk.cli.available", "asterisk.channels.active", "asterisk.modules.pjsip.available", "asterisk.modules.chan_pjsip.available", "asterisk.pjsip.registrations.count", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "linux.hostname", "linux.os.name", "linux.os.version", "linux.kernel.release", "linux.architecture", "linux.uptime.seconds", "linux.load.1m", "linux.load.5m", "linux.load.15m", "linux.cpu.logical_count", "linux.mem.total_bytes", "linux.mem.available_bytes", "linux.mem.free_bytes", "linux.filesystem.identifier", "linux.filesystem.total_bytes", "linux.filesystem.used_bytes", "linux.filesystem.available_bytes", "linux.filesystem.utilization_percent":
 		return true
@@ -201,6 +217,10 @@ func Evaluate(in Input) (Evaluation, error) {
 		} else if usable && r.Freshness == "fresh" {
 			switch p.Rule {
 			case "filesystem_used_high":
+				if !PersistentFilesystem(e, in.Evidence) {
+					r.Reason = "Filesystem persistence unverified or transient mount excluded"
+					break
+				}
 				r.Health = "healthy"
 				r.Reason = "Filesystem usage below explicit threshold"
 				if float64(e.Value.Integer) >= p.Threshold {

@@ -156,16 +156,20 @@ func TestFilesystemThresholdAndFutureCompletion(t *testing.T) {
 	i.Evidence[0].Resource = "/synthetic mount"
 	i.Evidence[0].Unit = "percent"
 	i.Evidence[0].Value = collection.Integer(80)
+	identifier := i.Evidence[0]
+	identifier.Key = "linux.filesystem.identifier"
+	identifier.Value = collection.Text("/dev/synthetic")
+	i.Evidence = append(i.Evidence, identifier)
 	i.Policies[0].Selector = i.Evidence[0].Key
 	i.Policies[0].Rule = "filesystem_used_high"
 	i.Policies[0].Threshold = 80
 	out, e := Evaluate(i)
-	if e != nil || out.Readings[0].Health != "degraded" {
+	if e != nil || out.Readings[1].Health != "degraded" {
 		t.Fatal(out, e)
 	}
 	i.Evidence[0].Value = collection.Integer(79)
 	out, e = Evaluate(i)
-	if e != nil || out.Readings[0].Health != "healthy" {
+	if e != nil || out.Readings[1].Health != "healthy" {
 		t.Fatal(out, e)
 	}
 	i.LatestAttempt = &collection.Run{StartedAt: i.At.Add(-time.Second), EndedAt: i.At.Add(time.Second), State: "completed", SuccessCount: 5}

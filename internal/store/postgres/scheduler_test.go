@@ -288,3 +288,88 @@ func TestIntegrationApplicationOwnerSessionLoss(t *testing.T) {
 	}
 	release()
 }
+
+func TestIntegrationExpandedSSHBudgetConstraintAndUpgrade(t *testing.T) {
+	db, h, target := collectionFixture(t)
+	ctx := context.Background()
+	actor := workspace.Principal{ID: workspace.OperatorID}
+	ids := []string{"linux.baseline", "linux.services", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "asterisk.auth", "asterisk.activity"}
+	p, err := db.SaveSchedule(ctx, actor, scheduler.Profile{CustomerID: h.CustomerID, EnvironmentID: h.EnvironmentID, AssetID: h.AssetID, Target: target, Interval: 60, Budget: 20, Collectors: []string{"linux.uptime"}, Enabled: false, Authorized: true, Paused: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.pool.Exec(ctx, `UPDATE collection_schedule SET enabled=true,collector_ids=$2 WHERE id=$1`, p.ID, ids); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the exact pre023 budget constraint and run the real pending migration.
+	_, err = db.pool.Exec(ctx, `ALTER TABLE collection_schedule DROP CONSTRAINT collection_schedule_budget_seconds_check; ALTER TABLE collection_schedule ADD CONSTRAINT collection_schedule_budget_seconds_check CHECK(budget_seconds BETWEEN 1 AND 20)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before string
+	err = db.pool.QueryRow(ctx, `SELECT (to_jsonb(s)-ARRAY['budget_seconds','revision'])::text FROM collection_schedule s WHERE id=$1`, p.ID).Scan(&before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := migrationFiles.ReadFile("migrations/023_mariadb.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.pool.Exec(ctx, string(b)); err != nil {
+		t.Fatal(err)
+	}
+	var after string
+	var budget int
+	var rev int64
+	err = db.pool.QueryRow(ctx, `SELECT (to_jsonb(s)-ARRAY['budget_seconds','revision'])::text,budget_seconds,revision FROM collection_schedule s WHERE id=$1`, p.ID).Scan(&after, &budget, &rev)
+	if err != nil || before != after || budget != 40 || rev != p.Revision+1 {
+		t.Fatal("upgrade changed authority/pause/cadence", err, budget, rev, before, after)
+	}
+	for _, q := range []string{`UPDATE collection_schedule SET budget_seconds=41 WHERE id=$1`, `UPDATE collection_schedule SET collector_ids=ARRAY['linux.uptime'] WHERE id=$1`} {
+		if _, err = db.pool.Exec(ctx, q, p.ID); err == nil {
+			t.Fatal("database accepted ineligible budget", q)
+		}
+	}
+	if _, err = db.pool.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=20,collector_ids=ARRAY['linux.uptime'] WHERE id=$1`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.pool.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=40 WHERE id=$1`, p.ID); err == nil {
+		t.Fatal("small DB profile accepted40")
+	}
+}
+
+func TestIntegrationExpandedBudgetAuthorizationWriters(t *testing.T) {
+	db, h, target := collectionFixture(t)
+	ctx := context.Background()
+	p := workspace.Principal{ID: workspace.OperatorID}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(n, budget int) {
+		t.Helper()
+		var gotN, gotBudget int
+		must(db.pool.QueryRow(ctx, `SELECT cardinality(collector_ids),budget_seconds FROM collection_schedule WHERE asset_id=$1`, h.AssetID).Scan(&gotN, &gotBudget))
+		if gotN != n || gotBudget != budget {
+			t.Fatal("authorization budget", gotN, gotBudget, n, budget)
+		}
+	}
+	must(db.SetStandardMonitoringWithMariaDB(ctx, p, h, target, true, true, true, true, true, true))
+	check(11, 40) // Seven Linux + auth/activity/media/MariaDB; registration has its own reviewed opt-in.
+	must(db.SetStandardMonitoringWithMariaDB(ctx, p, h, target, true, true, true, true, true, true))
+	check(11, 40)
+	// Baseline re-enrollment merges existing choices before computing the budget.
+	r, err := db.Enrollment(ctx, target.EndpointID, target.ProfileID)
+	must(err)
+	r.Details.BaselineAuthorized = true
+	r, err = db.SaveEnrollment(ctx, p, r, r.Revision, "baseline")
+	must(err)
+	target = r.Target()
+	check(11, 40)
+	must(db.SetStandardMonitoringWithMariaDB(ctx, p, h, target, true, true, true, false, false, false))
+	check(8, 20)
+	must(db.SetStandardMonitoringWithMariaDB(ctx, p, h, target, true, true, true, true, false, false))
+	check(9, 40)
+}

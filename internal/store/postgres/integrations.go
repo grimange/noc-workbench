@@ -153,7 +153,7 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 		if auth[0] {
 			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'asterisk.auth'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('asterisk.auth'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.auth'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.auth'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.auth'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.auth'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
 		}
 		if e != nil {
 			return ErrUnavailable
@@ -166,7 +166,7 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 		if *activity {
 			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'asterisk.activity'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('asterisk.activity'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(array_remove(collector_ids,'asterisk.activity'),'asterisk.media'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.activity'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(array_remove(collector_ids,'asterisk.activity'),'asterisk.media'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.activity'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
 		}
 		if e != nil {
 			return ErrUnavailable
@@ -179,7 +179,7 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 		if media[0] {
 			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'asterisk.media'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('asterisk.media'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.media'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.media'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'asterisk.media'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'asterisk.media'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
 		}
 		if e != nil {
 			return ErrUnavailable
@@ -192,11 +192,17 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 		if media[1] {
 			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_append(collector_ids,'mariadb.health'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND NOT ('mariadb.health'=ANY(collector_ids))`, r.AssetID, r.ID, r.Revision)
 		} else {
-			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'mariadb.health'),revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'mariadb.health'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
+			_, e = tx.Exec(ctx, `UPDATE collection_schedule SET collector_ids=array_remove(collector_ids,'mariadb.health'),revision=revision+1,budget_seconds=20 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND 'mariadb.health'=ANY(collector_ids)`, r.AssetID, r.ID, r.Revision)
 		}
 		if e != nil {
 			return ErrUnavailable
 		}
+	}
+
+	// Normalize after all additions/removals, including reauthorization of an
+	// already expanded profile. Never change cadence, authority or pause state.
+	if _, e = tx.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=CASE WHEN cardinality(collector_ids)>8 THEN 40 ELSE LEAST(budget_seconds,20) END,revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND source_id IS NULL AND budget_seconds<>CASE WHEN cardinality(collector_ids)>8 THEN 40 ELSE LEAST(budget_seconds,20) END`, r.AssetID, r.ID, r.Revision); e != nil {
+		return ErrUnavailable
 	}
 
 	_, e = tx.Exec(ctx, `INSERT INTO connection_audit(profile_id,principal_id,revision,operation,state,category) VALUES($1,$2,$3,'standard',$4,$5)`, r.ID, p.ID, r.Revision, r.State, map[bool]string{true: "standard_helper", false: "standard_local_cli"}[helper])

@@ -314,3 +314,37 @@ func TestMariaDBScheduleValidation(t *testing.T) {
 		t.Fatal("MariaDB admitted to cluster API schedule")
 	}
 }
+
+func TestExpandedSSHBudgetValidation(t *testing.T) {
+	ids := []string{"linux.baseline", "linux.services", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems", "asterisk.auth", "asterisk.activity"}
+	p := Profile{Interval: 60, Budget: 40, Collectors: ids}
+	if Validate(p) != nil {
+		t.Fatal("expanded budget rejected")
+	}
+	p.Budget = 41
+	if Validate(p) == nil {
+		t.Fatal("unbounded budget accepted")
+	}
+	p.Budget = 40
+	p.Collectors = ids[:8]
+	if Validate(p) == nil {
+		t.Fatal("small profile accepted40")
+	}
+	p.Collectors = append(append([]string{}, ids[:8]...), ids[0])
+	if Validate(p) == nil {
+		t.Fatal("duplicate inflated budget")
+	}
+	p.Collectors = append(append([]string{}, ids[:8]...), "arbitrary")
+	if Validate(p) == nil {
+		t.Fatal("unknown inflated budget")
+	}
+	p.CollectionSource.ID = "source"
+	p.Collectors = []string{"vicidial.api.version", "vicidial.api.campaigns", "vicidial.api.agents"}
+	if Validate(p) == nil {
+		t.Fatal("API accepted40")
+	}
+	p.Budget = 20
+	if Validate(p) != nil {
+		t.Fatal("API20 rejected")
+	}
+}

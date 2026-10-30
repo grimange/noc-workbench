@@ -287,7 +287,7 @@ func (s *Server) serverMonitoring(w http.ResponseWriter, r *http.Request) {
 			p.Collectors = append(p.Collectors, services.Collector)
 		}
 		p.Interval = 60
-		p.Budget = 20
+		p.Budget = int(collection.ScheduledSSHBudget(len(p.Collectors)) / time.Second)
 		p.Enabled = true
 		p.Authorized = true
 		if scheduler.Validate(p) != nil {

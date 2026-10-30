@@ -10,6 +10,16 @@ import (
 	"noc-workbench/internal/workspace"
 )
 
+// ScheduledSSHBudget bounds the entire sequential attempt, including admission.
+// Expanded optional profiles need room for independent SSH handshakes; each
+// command retains its own smaller transport deadline and output/concurrency caps.
+func ScheduledSSHBudget(collectors int) time.Duration {
+	if collectors > 8 && collectors <= 12 {
+		return 40 * time.Second
+	}
+	return 20 * time.Second
+}
+
 var ErrBusy = errors.New("Collection is already running or at capacity; retry shortly")
 
 // Service executes explicit bounded requests and commits evidence to its repository.
@@ -59,7 +69,7 @@ func (s *Service) Collect(ctx context.Context, p workspace.Principal, t sshcli.T
 	budget := 10 * time.Second
 	if req.Source == "scheduled" {
 		budget = req.Budget
-		if budget < time.Second || budget > 20*time.Second {
+		if budget < time.Second || budget > ScheduledSSHBudget(len(ids)) {
 			return Run{}, ErrUnknown
 		}
 	}

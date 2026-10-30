@@ -10,3 +10,12 @@ DO $$ DECLARE c record; d text; BEGIN
   IF d<>c.def THEN EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I',c.tbl,c.conname); EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I %s',c.tbl,c.conname,d); END IF;
  END LOOP;
 END $$;
+
+-- Only expanded SSH profiles receive a larger aggregate sequential budget.
+-- API attempts and smaller profiles retain their existing 20-second maximum.
+ALTER TABLE collection_schedule DROP CONSTRAINT collection_schedule_budget_seconds_check;
+ALTER TABLE collection_schedule ADD CONSTRAINT collection_schedule_budget_seconds_check
+ CHECK (budget_seconds BETWEEN 1 AND 20 OR
+        (budget_seconds BETWEEN 21 AND 40 AND source_id IS NULL AND profile_id IS NOT NULL AND cardinality(collector_ids)>8));
+UPDATE collection_schedule SET budget_seconds=40,revision=revision+1
+ WHERE source_id IS NULL AND profile_id IS NOT NULL AND cardinality(collector_ids)>8 AND budget_seconds=20;

@@ -62,13 +62,13 @@ type Runner interface {
 }
 
 func Validate(p Profile) error {
-	if p.Interval < 60 || p.Interval > 86400 || p.Budget < 1 || p.Budget > 20 || len(p.Collectors) < 1 || len(p.Collectors) > 12 {
+	if p.Interval < 60 || p.Interval > 86400 || p.Budget < 1 || p.Budget > int(collection.ScheduledSSHBudget(len(p.Collectors))/time.Second) || len(p.Collectors) < 1 || len(p.Collectors) > 12 {
 		return ErrInvalid
 	}
 	known := map[string]bool{"mariadb.health": true, "linux.baseline": true, "linux.services": true, "linux.identity": true, "linux.uptime": true, "linux.load": true, "linux.memory": true, "linux.filesystems": true, "asterisk.identity": true, "asterisk.channels": true, "asterisk.modules": true, "asterisk.pjsip": true, "asterisk.auth": true, "asterisk.registrations": true, "asterisk.activity": true, "asterisk.media": true}
 	if p.CollectionSource.ID != "" {
 		known = map[string]bool{"vicidial.api.version": true, "vicidial.api.campaigns": true, "vicidial.api.agents": true}
-		if len(p.Collectors) != 3 {
+		if len(p.Collectors) != 3 || p.Budget > 20 {
 			return ErrInvalid
 		}
 	}

@@ -2,7 +2,9 @@ package web
 
 import (
 	"net/http"
+	"noc-workbench/internal/collection"
 	"strconv"
+	"time"
 
 	"noc-workbench/internal/inventory"
 	"noc-workbench/internal/scheduler"
@@ -141,7 +143,7 @@ func (s *Server) assetSchedule(w http.ResponseWriter, r *http.Request) {
 		p.AssetID = asset
 		p.Collectors = r.PostForm["collectors"]
 		p.Interval, _ = strconv.Atoi(r.PostForm.Get("interval"))
-		p.Budget = 20
+		p.Budget = int(collection.ScheduledSSHBudget(len(p.Collectors)) / time.Second)
 		p.Authorized = r.PostForm.Get("authorize") == "yes"
 		p.Enabled = p.Authorized
 		p.Paused = false

@@ -348,7 +348,7 @@ func (s *Server) serverAsterisk(w http.ResponseWriter, r *http.Request) {
 			p.Collectors = append(p.Collectors, ast.RegistrationCollector)
 		}
 		p.Interval = 60
-		p.Budget = 20
+		p.Budget = int(collection.ScheduledSSHBudget(len(p.Collectors)) / time.Second)
 		p.Paused = p.OwnPaused
 		if scheduler.Validate(p) != nil {
 			http.Error(w, "Existing profile has no capacity for registration snapshots", 409)

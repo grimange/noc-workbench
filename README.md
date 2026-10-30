@@ -948,9 +948,9 @@ Focused helper tests: `python3 scripts/mariadb-observe_test.py`. Go parser,
 authorization, stale evidence, transport and PostgreSQL integration tests run
 through the existing verification commands, including `./scripts/test-m0`.
 
-Expanded scheduled SSH profiles (nine to twelve approved collectors) use a
-40-second aggregate deadline, including admission and sequential SSH handshakes.
-Profiles with at most eight collectors retain a 20-second maximum; manual
+Full Linux and expanded scheduled SSH profiles (seven to twelve approved collectors)
+use a 40-second aggregate deadline, including admission, sequential SSH handshakes
+and evidence persistence. Profiles with at most six collectors retain a 20-second maximum; manual
 collection remains 10 seconds and cluster API attempts remain 20 seconds.
 Per-command SSH deadlines, output limits, concurrency, pause and cancellation
 remain unchanged. The 60-second cadence does not guarantee completion under

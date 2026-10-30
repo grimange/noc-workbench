@@ -205,7 +205,7 @@ func (s *Store) setStandardMonitoring(ctx context.Context, p workspace.Principal
 
 	// Normalize after all additions/removals, including reauthorization of an
 	// already expanded profile. Never change cadence, authority or pause state.
-	if _, e = tx.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=CASE WHEN cardinality(collector_ids)>8 THEN 40 ELSE LEAST(budget_seconds,20) END,revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND source_id IS NULL AND budget_seconds<>CASE WHEN cardinality(collector_ids)>8 THEN 40 ELSE LEAST(budget_seconds,20) END`, r.AssetID, r.ID, r.Revision); e != nil {
+	if _, e = tx.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=CASE WHEN cardinality(collector_ids)>=7 THEN 40 ELSE LEAST(budget_seconds,20) END,revision=revision+1 WHERE asset_id=$1 AND profile_id=$2 AND profile_revision=$3 AND source_id IS NULL AND budget_seconds<>CASE WHEN cardinality(collector_ids)>=7 THEN 40 ELSE LEAST(budget_seconds,20) END`, r.AssetID, r.ID, r.Revision); e != nil {
 		return ErrUnavailable
 	}
 

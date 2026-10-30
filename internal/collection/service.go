@@ -11,10 +11,11 @@ import (
 )
 
 // ScheduledSSHBudget bounds the entire sequential attempt, including admission.
-// Expanded optional profiles need room for independent SSH handshakes; each
+// Full Linux and expanded profiles need room for independent SSH handshakes,
+// admission and evidence persistence after each collector; each
 // command retains its own smaller transport deadline and output/concurrency caps.
 func ScheduledSSHBudget(collectors int) time.Duration {
-	if collectors > 8 && collectors <= 12 {
+	if collectors >= 7 && collectors <= 12 {
 		return 40 * time.Second
 	}
 	return 20 * time.Second

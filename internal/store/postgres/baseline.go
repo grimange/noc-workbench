@@ -29,6 +29,6 @@ func authorizeBaseline(ctx context.Context, tx pgx.Tx, p workspace.Principal, r 
 	if e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=40 WHERE asset_id=$1 AND source_id IS NULL AND cardinality(collector_ids)>8 AND budget_seconds=20`, r.AssetID)
+	_, e = tx.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=40 WHERE asset_id=$1 AND source_id IS NULL AND cardinality(collector_ids)>=7 AND budget_seconds=20`, r.AssetID)
 	return e
 }

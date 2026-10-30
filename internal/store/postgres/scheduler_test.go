@@ -369,7 +369,59 @@ func TestIntegrationExpandedBudgetAuthorizationWriters(t *testing.T) {
 	target = r.Target()
 	check(11, 40)
 	must(db.SetStandardMonitoringWithMariaDB(ctx, p, h, target, true, true, true, false, false, false))
-	check(8, 20)
+	check(8, 40)
 	must(db.SetStandardMonitoringWithMariaDB(ctx, p, h, target, true, true, true, true, false, false))
 	check(9, 40)
+}
+
+func TestIntegrationLinuxBudgetUpgradePreservesMonitoringIntent(t *testing.T) {
+	db, h, target := collectionFixture(t)
+	ctx := context.Background()
+	actor := workspace.Principal{ID: workspace.OperatorID}
+	ids := []string{"linux.baseline", "linux.services", "linux.identity", "linux.uptime", "linux.load", "linux.memory", "linux.filesystems"}
+	p, err := db.SaveSchedule(ctx, actor, scheduler.Profile{CustomerID: h.CustomerID, EnvironmentID: h.EnvironmentID, AssetID: h.AssetID, Target: target, Interval: 60, Budget: 20, Collectors: ids, Enabled: false, Authorized: true, Paused: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after string
+	if err = db.pool.QueryRow(ctx, `SELECT (to_jsonb(s)-ARRAY['budget_seconds','revision'])::text FROM collection_schedule s WHERE id=$1`, p.ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	migration, err := migrationFiles.ReadFile("migrations/026_linux_schedule_budget.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.pool.Exec(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	var budget int
+	var revision int64
+	if err = db.pool.QueryRow(ctx, `SELECT (to_jsonb(s)-ARRAY['budget_seconds','revision'])::text,budget_seconds,revision FROM collection_schedule s WHERE id=$1`, p.ID).Scan(&after, &budget, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if before != after || budget != 40 || revision != p.Revision+1 {
+		t.Fatal("upgrade changed monitoring intent", budget, revision, before, after)
+	}
+	if _, err = db.pool.Exec(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	var again int64
+	if err = db.pool.QueryRow(ctx, `SELECT revision FROM collection_schedule WHERE id=$1`, p.ID).Scan(&again); err != nil || again != revision {
+		t.Fatal("repeat migration changed revision", err, again)
+	}
+	if _, err = db.pool.Exec(ctx, `UPDATE collection_schedule SET budget_seconds=41 WHERE id=$1`, p.ID); err == nil {
+		t.Fatal("unbounded budget accepted")
+	}
+	// Baseline verification must use the same budget, without requiring optional adapters.
+	r, err := db.Enrollment(ctx, target.EndpointID, target.ProfileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Details.BaselineAuthorized = true
+	if _, err = db.SaveEnrollment(ctx, actor, r, r.Revision, "baseline"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.pool.QueryRow(ctx, `SELECT budget_seconds FROM collection_schedule WHERE id=$1`, p.ID).Scan(&budget); err != nil || budget != 40 {
+		t.Fatal("baseline writer reset budget", err, budget)
+	}
 }

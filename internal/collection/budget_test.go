@@ -46,9 +46,11 @@ func TestExpandedScheduledBudgetBoundariesAndCancellation(t *testing.T) {
 		budget, want   time.Duration
 		reject, cancel bool
 	}{
-		{name: "eight", source: "scheduled", n: 8, budget: 20 * time.Second, want: 20 * time.Second},
+		{name: "eight legacy", source: "scheduled", n: 8, budget: 20 * time.Second, want: 20 * time.Second},
+		{name: "eight", source: "scheduled", n: 8, budget: 40 * time.Second, want: 40 * time.Second},
+		{name: "full Linux", source: "scheduled", n: 7, budget: 40 * time.Second, want: 40 * time.Second},
 		{name: "nine", source: "scheduled", n: 9, budget: 40 * time.Second, want: 40 * time.Second},
-		{name: "small rejected", source: "scheduled", n: 8, budget: 40 * time.Second, reject: true},
+		{name: "small rejected", source: "scheduled", n: 6, budget: 40 * time.Second, reject: true},
 		{name: "over maximum", source: "scheduled", n: 9, budget: 41 * time.Second, reject: true},
 		{name: "manual unchanged", n: 9, budget: 40 * time.Second, want: 10 * time.Second},
 		{name: "cancellation", source: "scheduled", n: 9, budget: 40 * time.Second, want: 40 * time.Second, cancel: true},

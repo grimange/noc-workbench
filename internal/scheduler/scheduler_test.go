@@ -321,12 +321,16 @@ func TestExpandedSSHBudgetValidation(t *testing.T) {
 	if Validate(p) != nil {
 		t.Fatal("expanded budget rejected")
 	}
+	p.Collectors = ids[:7]
+	if Validate(p) != nil {
+		t.Fatal("full Linux budget rejected")
+	}
 	p.Budget = 41
 	if Validate(p) == nil {
 		t.Fatal("unbounded budget accepted")
 	}
 	p.Budget = 40
-	p.Collectors = ids[:8]
+	p.Collectors = ids[:6]
 	if Validate(p) == nil {
 		t.Fatal("small profile accepted40")
 	}

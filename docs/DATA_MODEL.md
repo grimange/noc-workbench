@@ -208,3 +208,9 @@ Resources are fixed `sip`/`pjsip` source names and ordinal suffixes, never remot
 identifiers. The eleventh standard collector is allowed consistently by schedule,
 run and application bounds. Failed latest attempts do not inherit earlier rows
 as current. Neither migration expands existing grants or schedules automatically.
+
+Migration 026 extends the bounded 40-second SSH schedule budget to profiles with
+seven or eight collectors, including the full Linux baseline. Existing eligible
+20-second schedules receive only budget and revision changes. Cadence, authority,
+pause state, collector selection and target identity are preserved. Source/API
+schedules remain limited to 20 seconds; no observation schema changes are made.

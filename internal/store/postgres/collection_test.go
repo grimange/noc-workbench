@@ -404,7 +404,7 @@ func testUpgrade(t *testing.T, before string, priorCount int) {
 		t.Fatal(e)
 	}
 	var count int
-	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 25 {
+	if e = pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration`).Scan(&count); e != nil || count != 26 {
 		t.Fatal("upgrade history", e, count)
 	}
 	if oldLink != "" {

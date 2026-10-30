@@ -170,7 +170,10 @@ type Limits struct {
 	TotalTimeout, ConnectTimeout      time.Duration
 }
 
-func DefaultLimits() Limits                    { return Limits{5, 1, 64 * 1024, 5 * time.Second, 5 * time.Second} }
+// The executor ceiling must accommodate the longest reviewed command. Each
+// command still applies its own smaller deadline, and the caller's collection
+// deadline also remains in force.
+func DefaultLimits() Limits                    { return Limits{5, 1, 64 * 1024, 20 * time.Second, 5 * time.Second} }
 func New(approval Approval) (*Executor, error) { return NewWithLimits(approval, DefaultLimits()) }
 func NewWithLimits(approval Approval, l Limits) (*Executor, error) {
 	if approval == nil || l.GlobalHosts < 1 || l.GlobalHosts > 5 || l.PerHost != 1 || l.OutputBytes < 1 || l.OutputBytes > 64*1024 || l.TotalTimeout <= 0 || l.TotalTimeout > 20*time.Second || l.ConnectTimeout < time.Second || l.ConnectTimeout > 5*time.Second {

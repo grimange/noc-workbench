@@ -59,6 +59,52 @@ func category(t *testing.T, err error, want Category) {
 		t.Fatalf("category=%v want=%s", err, want)
 	}
 }
+
+func TestReviewedCommandDeadlines(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command string
+		ceiling time.Duration
+		parent  time.Duration
+		want    time.Duration
+	}{
+		{"baseline", "linux.baseline.v1", 20 * time.Second, time.Minute, 18 * time.Second},
+		{"services", "linux.services.v1", 20 * time.Second, time.Minute, 12 * time.Second},
+		{"ordinary", "linux.identity.v1", 20 * time.Second, time.Minute, 5 * time.Second},
+		{"custom_ceiling", "linux.baseline.v1", 2 * time.Second, time.Minute, 2 * time.Second},
+		{"collection_deadline", "linux.baseline.v1", 20 * time.Second, time.Second, time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			limits := DefaultLimits()
+			if limits.TotalTimeout < registry["linux.baseline.v1"].timeout {
+				t.Fatal("default ceiling truncates reviewed baseline deadline")
+			}
+			limits.TotalTimeout = tc.ceiling
+			stop := errors.New("stop before remote execution")
+			var remaining time.Duration
+			e, err := NewWithLimits(approvalFunc(func(ctx context.Context, _ workspace.Principal, _ Target, _ workspace.Permission) (Profile, error) {
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("missing execution deadline")
+				}
+				remaining = time.Until(deadline)
+				return Profile{}, stop
+			}), limits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), tc.parent)
+			defer cancel()
+			_, err = e.Execute(ctx, actor, Target{AssetID: id}, tc.command)
+			if !errors.Is(err, stop) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if remaining <= 0 || remaining > tc.want || remaining < tc.want-time.Second/2 {
+				t.Fatalf("deadline %v, want %v", remaining, tc.want)
+			}
+		})
+	}
+}
 func TestArgumentsAndStaticCommand(t *testing.T) {
 	p, e := fixture(t)
 	e.executable = fake(t, `for arg do printf '%s\n' "$arg"; done`)

@@ -28,6 +28,9 @@ func inventoryFixtureWith(t *testing.T, configure func(*postgres.Store, *Options
 	})
 }
 func inventoryFixtureDatabase(t *testing.T, configure func(*postgres.Store, *Options, string)) http.Handler {
+	return inventoryFixtureDatabaseRuntime(t, configure, nil)
+}
+func inventoryFixtureDatabaseRuntime(t *testing.T, configure func(*postgres.Store, *Options, string), settings map[string]string) http.Handler {
 	t.Helper()
 	dsn := os.Getenv("NOC_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -74,6 +77,9 @@ func inventoryFixtureDatabase(t *testing.T, configure func(*postgres.Store, *Opt
 	})
 	q := u.Query()
 	q.Set("search_path", schema)
+	for key, value := range settings {
+		q.Set(key, value)
+	}
 	u.RawQuery = q.Encode()
 	db, err := postgres.Open(ctx, u.String())
 	if err != nil {

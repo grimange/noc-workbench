@@ -16,7 +16,7 @@ import (
 func TestIntegrationServerDetailsRetainedHistoryConcurrent(t *testing.T) {
 	ctx := context.Background()
 	var path string
-	h := inventoryFixtureDatabase(t, func(db *postgres.Store, _ *Options, dsn string) {
+	h := inventoryFixtureDatabaseRuntime(t, func(db *postgres.Store, _ *Options, dsn string) {
 		must := func(err error) {
 			t.Helper()
 			if err != nil {
@@ -38,7 +38,7 @@ func TestIntegrationServerDetailsRetainedHistoryConcurrent(t *testing.T) {
 		must(conn.QueryRow(ctx, `INSERT INTO connection_profile(customer_id,environment_id,asset_id,endpoint_id,state,details) VALUES($1,$2,$3,$4,'connection_verified',jsonb_build_object('Host','192.0.2.45','Port',22,'EndpointUpdatedAt',$6::timestamptz,'ApprovedKey','synthetic-public-key','ApprovedFingerprint','synthetic','Evidence','Synthetic repository fixture','ApprovedBy',$5::text,'AuthorizedBy',$5::text,'ApprovedAt',clock_timestamp(),'AuthorizedAt',clock_timestamp(),'VerifiedAt',clock_timestamp())) RETURNING id::text`, c.ID, env.ID, a.ID, ep.ID, workspace.OperatorID, ep.UpdatedAt).Scan(&profile))
 		_, e = conn.Exec(ctx, `WITH runs AS (
    INSERT INTO collection_run(customer_id,environment_id,asset_id,endpoint_id,profile_id,profile_revision,endpoint_revision,principal_id,started_at,ended_at,state,success_count,collector_ids)
-   SELECT $1,$2,$3,$4,$5,1,$6,$7,now()-n*interval '1 minute',now()-n*interval '1 minute'+interval '1 second','completed',1,ARRAY['linux.filesystems'] FROM generate_series(1,1000) n RETURNING *
+   SELECT $1,$2,$3,$4,$5,1,$6,$7,now()-n*interval '1 minute',now()-n*interval '1 minute'+interval '1 second','completed',4,ARRAY['linux.filesystems','linux.baseline','linux.memory','linux.services'] FROM generate_series(1,1000) n RETURNING *
   ), results AS (
    INSERT INTO collector_result(run_id,collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics)
    SELECT id,'linux.filesystems','1','linux.filesystems.v1','success','success',started_at,ended_at,120,ARRAY[]::text[] FROM runs RETURNING run_id
@@ -46,8 +46,20 @@ func TestIntegrationServerDetailsRetainedHistoryConcurrent(t *testing.T) {
    SELECT r.id,r.asset_id,r.endpoint_id,r.profile_id,1,'linux.filesystems','1','linux.filesystems.v1',k.key,CASE WHEN n=1 THEN '/' ELSE '/synthetic/'||n END,'integer',k.value,k.unit,'ssh','valid',r.started_at,r.ended_at,180
    FROM runs r JOIN results x ON x.run_id=r.id CROSS JOIN generate_series(1,30) n CROSS JOIN (VALUES ('linux.filesystem.total_bytes',1000,'bytes'),('linux.filesystem.used_bytes',100,'bytes'),('linux.filesystem.available_bytes',900,'bytes'),('linux.filesystem.utilization_percent',10,'percent')) k(key,value,unit)`, c.ID, env.ID, a.ID, ep.ID, profile, ep.UpdatedAt, workspace.OperatorID)
 		must(e)
+		// Mix the console's unit identities and scalar keys into retained history;
+		// a filesystem-only fixture does not exercise recursive unit enumeration.
+		for _, seed := range []string{`INSERT INTO collector_result(run_id,collector_id,version,command_id,outcome,transport_outcome,started_at,ended_at,observation_count,diagnostics)
+ SELECT r.id,k.id,'1',k.id||'.v1','success','success',r.started_at,r.ended_at,k.count,ARRAY[]::text[]
+ FROM collection_run r CROSS JOIN (VALUES ('linux.baseline',32),('linux.memory',2),('linux.services',0)) k(id,count) WHERE r.asset_id=$1`, `INSERT INTO observation(run_id,asset_id,endpoint_id,profile_id,profile_revision,collector_id,collector_version,command_id,key,resource,kind,text_value,unit,transport,quality,observed_at,received_at,ttl_seconds)
+ SELECT r.id,r.asset_id,r.endpoint_id,r.profile_id,1,'linux.baseline','1','linux.baseline.v1','linux.baseline.units',lpad(n::text,2,'0'),'text','[]','text','ssh','valid',r.started_at,r.ended_at,180
+ FROM collection_run r CROSS JOIN generate_series(0,31) n WHERE r.asset_id=$1`, `INSERT INTO observation(run_id,asset_id,endpoint_id,profile_id,profile_revision,collector_id,collector_version,command_id,key,resource,kind,integer_value,unit,transport,quality,observed_at,received_at,ttl_seconds)
+ SELECT r.id,r.asset_id,r.endpoint_id,r.profile_id,1,'linux.memory','1','linux.memory.v1',k.key,'','integer',k.value,'bytes','ssh','valid',r.started_at,r.ended_at,180
+ FROM collection_run r CROSS JOIN (VALUES ('linux.mem.total_bytes',1073741824),('linux.mem.available_bytes',805306368)) k(key,value) WHERE r.asset_id=$1`} {
+			_, e = conn.Exec(ctx, seed, a.ID)
+			must(e)
+		}
 		path = "/servers/" + a.ID
-	})
+	}, map[string]string{"plan_cache_mode": "force_generic_plan", "jit": "on"})
 	cookie := authenticate(t, h)
 	for _, destination := range []string{"/", path, path + "/history?key=linux.filesystem.utilization_percent&resource=%2F"} {
 		t.Run(destination, func(t *testing.T) {

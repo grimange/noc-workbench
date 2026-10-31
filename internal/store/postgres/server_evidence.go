@@ -29,6 +29,13 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 		return nil, nil, e
 	}
 	defer tx.Rollback(ctx)
+	// This bounded console read uses indexed point lookups. A cached generic
+	// plan can overestimate the recursive identity query and spend seconds in
+	// JIT compilation alone. Keep compilation out of the request deadline;
+	// SET LOCAL restores the connection setting at transaction completion.
+	if _, e = tx.Exec(ctx, "SET LOCAL jit=off"); e != nil {
+		return nil, nil, e
+	}
 	inputs := map[string]*health.Input{}
 	rows, e := tx.Query(ctx, `SELECT a.id::text,c.id::text,e.id::text,a.lifecycle='active' AND e.status='active' AND c.status='active',EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state='connection_verified') AND NOT EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state<>'connection_verified'),CASE WHEN EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state='identity_changed') THEN 'SSH host-key trust problem' WHEN EXISTS(SELECT 1 FROM connection_profile cp WHERE cp.asset_id=a.id AND cp.state='credential_expired') THEN 'SSH authentication / authorization problem' ELSE '' END`+serverFrom+` WHERE `+serverScope+` AND a.kind='server' AND a.id=ANY($4::uuid[])`, append(scopeArgs(scope), ids)...)
 	if e != nil {
@@ -139,7 +146,7 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 			runIDs = append(runIDs, r.ID)
 		}
 	}
-	rows, e = tx.Query(ctx, `SELECT run_id::text,collector_id,outcome,transport_outcome FROM collector_result WHERE run_id::text=ANY($1::text[]) AND collector_id IN ('linux.services','linux.baseline','linux.memory','linux.filesystems')`, runIDs)
+	rows, e = tx.Query(ctx, `SELECT run_id::text,collector_id,outcome,transport_outcome FROM collector_result WHERE run_id=ANY($1::uuid[]) AND collector_id IN ('linux.services','linux.baseline','linux.memory','linux.filesystems')`, runIDs)
 	if e != nil {
 		return nil, nil, e
 	}

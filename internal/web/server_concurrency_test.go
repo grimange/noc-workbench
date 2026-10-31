@@ -49,7 +49,7 @@ func TestIntegrationServerDetailsRetainedHistoryConcurrent(t *testing.T) {
 		path = "/servers/" + a.ID
 	})
 	cookie := authenticate(t, h)
-	for _, destination := range []string{"/", path} {
+	for _, destination := range []string{"/", path, path + "/history?key=linux.filesystem.utilization_percent&resource=%2F"} {
 		t.Run(destination, func(t *testing.T) {
 			start := make(chan struct{})
 			results := make(chan int, 12)

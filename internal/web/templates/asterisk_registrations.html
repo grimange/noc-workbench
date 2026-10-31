@@ -28,6 +28,7 @@
 <div class="authentication-monitoring" id="authentication-events">
 <h3>Authentication events</h3>
 {{if .Current}}<p><strong>Current collection</strong> · inspected {{localTime .CheckedAt}}</p>
+{{if .Gap}}<p>Current authentication-log collection succeeded; earlier historical log coverage remains incomplete.</p>{{end}}
 <p>{{if .Gap}}Observed counts with incomplete historical coverage: {{end}}{{.Failures5}} failures in last 5 minutes · {{.FailuresHour}} in last hour · {{.Sources}} distinct observed source IPs in last hour</p>
 {{else}}<p><strong>Authentication monitoring unavailable</strong> · {{.CoverageReason}}</p><p>Retained events: {{.Failures5}} in last 5 minutes · {{.FailuresHour}} in last hour. Counts do not establish complete current coverage.</p>{{end}}
 {{if not .Latest.IsZero}}<p>Most recent supported failure: {{localTime .Latest}}</p>{{end}}

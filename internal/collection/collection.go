@@ -54,6 +54,9 @@ type Run struct {
 	Target                           sshcli.Target
 	StartedAt, EndedAt               time.Time
 	Results                          []Result
+	// SummaryResults contains all canonical outcomes when Results is a limited
+	// policy projection. It is used only for presentation, never health evaluation.
+	SummaryResults []Result
 }
 type Parser func([]byte) ([]Observation, []Diagnostic)
 type Spec struct {

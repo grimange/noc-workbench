@@ -110,7 +110,7 @@ func runtimeReadings(d runtimeData, in health.Input, out health.Evaluation) runt
 				label = "Failed"
 			}
 		}
-		d.RunSummary = fmt.Sprintf("%s — %d successful, %d failed", label, d.Attempt.SuccessCount, d.Attempt.FailureCount)
+		d.RunSummary = label + " — " + d.Attempt.CountSummary()
 		if !d.Enabled || in.At.Sub(d.Attempt.EndedAt) > 120*time.Second {
 			d.RunSummary = "Historical: " + d.RunSummary
 		}

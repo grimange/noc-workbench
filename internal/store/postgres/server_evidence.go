@@ -146,7 +146,7 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 			runIDs = append(runIDs, r.ID)
 		}
 	}
-	rows, e = tx.Query(ctx, `SELECT run_id::text,collector_id,outcome,transport_outcome FROM collector_result WHERE run_id=ANY($1::uuid[]) AND collector_id IN ('linux.services','linux.baseline','linux.memory','linux.filesystems')`, runIDs)
+	rows, e = tx.Query(ctx, `SELECT run_id::text,collector_id,outcome,transport_outcome FROM collector_result WHERE run_id=ANY($1::uuid[])`, runIDs)
 	if e != nil {
 		return nil, nil, e
 	}
@@ -158,12 +158,15 @@ func (s *Store) ServerEvidence(ctx context.Context, scope workspace.Scope, ids [
 		}
 		for _, in := range inputs {
 			for i := range in.RecentAttempts {
-				if in.RecentAttempts[i].ID == id {
+				if in.RecentAttempts[i].ID == id && (collector == "linux.services" || collector == "linux.baseline" || collector == "linux.memory" || collector == "linux.filesystems") {
 					in.RecentAttempts[i].Results = append(in.RecentAttempts[i].Results, collection.Result{CollectorID: collector, Outcome: outcome, TransportOutcome: transport})
 				}
 			}
 			if in.LatestAttempt != nil && in.LatestAttempt.ID == id {
-				in.LatestAttempt.Results = append(in.LatestAttempt.Results, collection.Result{CollectorID: collector, Outcome: outcome, TransportOutcome: transport})
+				in.LatestAttempt.SummaryResults = append(in.LatestAttempt.SummaryResults, collection.Result{CollectorID: collector, Outcome: outcome})
+				if collector == "linux.services" || collector == "linux.baseline" || collector == "linux.memory" || collector == "linux.filesystems" {
+					in.LatestAttempt.Results = append(in.LatestAttempt.Results, collection.Result{CollectorID: collector, Outcome: outcome, TransportOutcome: transport})
+				}
 			}
 		}
 	}

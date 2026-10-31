@@ -21,11 +21,19 @@ func (s *Store) RuntimeAttempt(ctx context.Context, p workspace.Principal, h col
 	if e != nil {
 		return nil, ErrUnavailable
 	}
-	var outcome, transport string
-	e = s.pool.QueryRow(ctx, `SELECT outcome,transport_outcome FROM collector_result WHERE run_id=$1 AND collector_id='linux.services'`, r.ID).Scan(&outcome, &transport)
-	if e == nil {
-		r.Results = []collection.Result{{CollectorID: "linux.services", Outcome: outcome, TransportOutcome: transport}}
-	} else if !errors.Is(e, pgx.ErrNoRows) {
+	rows, e := s.pool.Query(ctx, `SELECT collector_id,outcome,transport_outcome FROM collector_result WHERE run_id=$1 ORDER BY collector_id`, r.ID)
+	if e != nil {
+		return nil, ErrUnavailable
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c collection.Result
+		if e = rows.Scan(&c.CollectorID, &c.Outcome, &c.TransportOutcome); e != nil {
+			return nil, ErrUnavailable
+		}
+		r.Results = append(r.Results, c)
+	}
+	if rows.Err() != nil {
 		return nil, ErrUnavailable
 	}
 	return &r, nil

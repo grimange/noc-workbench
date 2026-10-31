@@ -16,14 +16,25 @@ type integrationQuery interface {
 }
 
 func (s *Store) IntegrationAllowed(ctx context.Context, p workspace.Principal, t sshcli.Target, name string) error {
-	return integrationAllowed(ctx, s.pool, p, t, name)
+	// This is a snapshot check, including for status views. An autocommit row
+	// lock cannot fence subsequent work and unnecessarily turns repeated reads
+	// into locking transactions. Execution/persistence transactions use the
+	// locking integrationAllowed check below for their entire protected work.
+	return integrationPermission(ctx, s.pool, p, t, name, false)
 }
 func integrationAllowed(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, name string) error {
+	return integrationPermission(ctx, q, p, t, name, true)
+}
+func integrationPermission(ctx context.Context, q integrationQuery, p workspace.Principal, t sshcli.Target, name string, lock bool) error {
 	if p.ID != workspace.OperatorID || !monitoringIntegration(name) {
 		return workspace.ErrDenied
 	}
 	var yes bool
-	e := q.QueryRow(ctx, `SELECT true FROM collection_integration i JOIN connection_profile p ON p.id=i.profile_id WHERE i.profile_id=$1 AND i.asset_id=$2 AND i.endpoint_id=$3 AND i.integration=$4 AND i.enabled AND i.profile_revision=$5 AND p.revision=$5 AND p.state='connection_verified' FOR SHARE OF i,p`, t.ProfileID, t.AssetID, t.EndpointID, name, t.ProfileVersion).Scan(&yes)
+	query := `SELECT true FROM collection_integration i JOIN connection_profile p ON p.id=i.profile_id WHERE i.profile_id=$1 AND i.asset_id=$2 AND i.endpoint_id=$3 AND i.integration=$4 AND i.enabled AND i.profile_revision=$5 AND p.revision=$5 AND p.state='connection_verified'`
+	if lock {
+		query += ` FOR SHARE OF i,p`
+	}
+	e := q.QueryRow(ctx, query, t.ProfileID, t.AssetID, t.EndpointID, name, t.ProfileVersion).Scan(&yes)
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 		return sshcli.LocalFailure(e)
 	}

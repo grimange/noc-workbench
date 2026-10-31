@@ -111,7 +111,9 @@ func amiOptionalGrants(ctx context.Context, q integrationQuery, b *ami.Binding) 
 		name    string
 		allowed *bool
 	}{{"asterisk_activity", &b.Activity}, {"asterisk_media", &b.Media}} {
-		err := integrationAllowed(ctx, q, workspace.Principal{ID: workspace.OperatorID}, b.Target, grant.name)
+		// Binding discovery is a snapshot read. Event persistence rechecks the
+		// grants under transaction locks in amiAllowed and its callers.
+		err := integrationPermission(ctx, q, workspace.Principal{ID: workspace.OperatorID}, b.Target, grant.name, false)
 		if err != nil && !errors.Is(err, workspace.ErrDenied) {
 			return err
 		}
